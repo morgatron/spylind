@@ -1,20 +1,22 @@
-from scipy.linalg import toeplitz
 import numpy as np
-from numpy import pi, newaxis, exp
+from numpy import pi
 import pdb
 from sympy.printing import sstr
 import qutip as q
 import sympy as sm
-from numpy import random
-from builtins import sum
 import os
 from MT import liouvillianS
+from collections.abc import Iterable   # drop `.abc` with Python 2.7 or lower
 
-#home = os.path.expanduser("~")
-#if not os.path.exists(home + '/cache'):
+
+def iterable(obj):
+    return isinstance(obj, Iterable)
+# home = os.path.expanduser("~")
+# if not os.path.exists(home + '/cache'):
 #    os.makedirs(home + '/cache')
 #
-#mem = Memory(cachedir=home + '/cache')
+
+
 def toDense(qobj):
     if type(qobj) is q.Qobj:
         return qobj.data.todense()
@@ -27,80 +29,80 @@ def seperate_DM_equation(eq):
     diagL = (Dia(eq.lhs))
     coh_dtL = (Coh(eq.rhs))
     diag_dtL = (Dia(eq.rhs))
-    return diagL+cohL, diag_dtL+coh_dtL
+    return diagL + cohL, diag_dtL + coh_dtL
+
 
 def convMat(M):
-    """Convert a pure symbollic matrix into a matrix of symbols (I think?)
-    """
-    el = M[0,0]
+    """Convert a pure symbollic matrix into a matrix of symbols (I think?)"""
+    el = M[0, 0]
     st = sstr(el)
     base = st[:st.find('[')]
     symArr = sm.symbols('{0}:{1}(:{2})'.format(base, *M.shape))
-    outputM=M.subs({elA:elB for elA,elB in zip(list(M), list(symArr))})
+    outputM = M.subs({elA: elB for elA, elB in zip(list(M), list(symArr))})
     return outputM
 
+
 def makeHermS(M):
-    """Make a matrix of symbols concretely Hermition by replacing lower diagonal
-    elements with the complex conjugate of the upper diagonals.
-    """
-    Nstates=M.shape[0]
+    """Make a matrix of symbols concretely Hermition by replacing lower
+    diagonal elements with the complex conjugate of the upper diagonals."""
+    Nstates = M.shape[0]
     rIL, cIL = np.tril_indices(Nstates, -1)
     rIU, cIU = np.triu_indices(Nstates, 1)
-    #rsM = rsM.subs({sm.symbols('rho{0}{0}'.format(k)): sm.symbols('rho{0}{0}'.format(k), real=True) for k in range(Nstates)})
-    M=M.subs({M[rl,cl]: sm.conjugate(M[cl,rl]) for ru,cu, rl,cl in zip(rIU, cIU, rIL, cIL)})
+    M = M.subs({M[rl, cl]: sm.conjugate(M[cl, rl]) for ru, cu, rl, cl
+                in zip(rIU, cIU, rIL, cIL)})
     return M
 
+
 def makeHerm(m):
-    """Purely numerical version of the above"""
-    dia=np.diagonal(m).squeeze()
-    return    m + m.conjugate().T - np.diag(dia)
+    """Purely numerical version of the above."""
+    dia = np.diagonal(m).squeeze()
+    return m + m.conjugate().T - np.diag(dia)
+
 
 def getRhoLabels(labels):
-    labs=[['{}{}'.format(lab1, lab2) for lab1 in labels] for lab2 in labels]
+    labs = [['{}{}'.format(lab1, lab2) for lab1 in labels] for lab2 in labels]
     return labs
+
 
 def getTensoredLabels(*args):
     labels_list_list = list(args)
     labels_cur = labels_list_list.pop()
-    #labels_ = args.pop()
     mat_labels_cur = getRhoLabels(labels_cur)
     while labels_list_list:
         mat_labels_next = getRhoLabels(labels_list_list.pop())
-        mat_labels_cur=_getTensoredLabels(mat_labels_next, mat_labels_cur)
+        mat_labels_cur = _getTensoredLabels(mat_labels_next, mat_labels_cur)
     return mat_labels_cur
-    #mat_labelsL = [getRhoLabels(labels) for labels in args]
-    #['{}|{}'.format(lab1, lab2) for lab1 in mat2_labels
+
+
 def _getTensoredLabels(mat_labels1, mat_labels2):
     N1 = len(mat_labels1)
     N2 = len(mat_labels2)
-    labelM = np.empty((N1*N2,N1*N2), dtype='O')
+    labelM = np.empty((N1 * N2, N1 * N2), dtype='O')
 
     for i1 in np.arange(N1):
         for k1 in np.arange(N1):
             for i2 in np.arange(N2):
                 for k2 in np.arange(N2):
-                   labelM[i1*N2+i2, k1*N2+k2] = '{}|{}'.format(mat_labels1[i1][k1], mat_labels2[i2][k2])
+                    labelM[i1 * N2 + i2, k1 * N2 + k2] = '{}|{}'.format(mat_labels1[i1][k1], mat_labels2[i2][k2])
 
     return labelM
 
-def getTensoredRhoS(*args ):
-    """
-    e.g getTensoredRhoS('123', 'abc') will return a DM with symbols labelled
-    according to a space with levels labelled '1', '2', and '3' tensored
-    with a space with levels labelled 'a', 'b', 'c'.
 
-    """
+def getTensoredRhoS(*args):
+    """e.g getTensoredRhoS('123', 'abc') will return a DM with symbols labelled
+    according to a space with levels labelled '1', '2', and '3' tensored with a
+    space with levels labelled 'a', 'b', 'c'."""
     st = '\\rho_{{{}}}'
-    labsMat=getTensoredLabels(*args)
+    labsMat = getTensoredLabels(*args)
     rhoM = np.empty_like(labsMat)
     N = rhoM.shape[0]
     for i in range(N):
         for k in range(N):
             if k < i:
-                sym = sm.conjugate(rhoM[k,i])
+                sym = sm.conjugate(rhoM[k, i])
             else:
-                sym_st = st.format(labsMat[i,k])
-                if k == i :
+                sym_st = st.format(labsMat[i, k])
+                if k == i:
                     sym = sm.symbols(sym_st, real=True)
                 else:
                     sym = sm.symbols(sym_st, complex=True)
@@ -108,23 +110,29 @@ def getTensoredRhoS(*args ):
             rhoM[i, k] = sym
     return sm.Matrix(rhoM)
 
+
 def getRhoS(Nstates):
-    symName = lambda i1, i2: '\\rho_{{{0}|{1}}}'.format(i1,i2)
-    M = np.empty((Nstates,Nstates), dtype='O')
+    def symName(i1, i2): return '\\rho_{{{0}|{1}}}'.format(i1, i2)
+    M = np.empty((Nstates, Nstates), dtype='O')
     DI = np.diag_indices(Nstates)
     UI = np.triu_indices(Nstates, 1)
     for inds in zip(*DI):
         M[inds[0], inds[1]] = sm.symbols(symName(*inds), real=True)
     for inds in zip(*UI):
-        sym =  sm.symbols(symName(*inds), complex=True)
-        M[inds[0], inds[1]] =sym
+        sym = sm.symbols(symName(*inds), complex=True)
+        M[inds[0], inds[1]] = sym
         M[inds[1], inds[0]] = sm.conjugate(sym)
 
     return sm.Matrix(M)
 
 
-def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-1, br_ratio=0, decay_rates=None, coh_decay_rates=0):
-    """ Construct a parameterised Hamiltonian and collapse operators for driven transitions between a ground state manifold with energy splittings @gsEnergies and excited state splittings. Returns in the format needed by the setAtomParameters function (H0, H1, Hlst)
+def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
+                              1, br_ratio=0, decay_rates=None, coh_decay_rates=0):
+    """Construct a parameterised Hamiltonian and collapse operators for driven
+    transitions between a ground state manifold with energy splittings
+    @gsEnergies and excited state splittings. Returns in the format needed by
+    the setAtomParameters function (H0, H1, Hlst)
+
     @esEnergies. Ground and excited states are coupled by a Hamiltonian H1 according to the values
     Args:
         osc_strengths: A detuning between ground and excited states is given y the hamiltonian H2.
@@ -140,35 +148,34 @@ def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-1
     esL = [q.basis(Nstates, Ngs + n) for n in range(Nes)]
     H1 = None
 
-
     try:
         Nbrs = len(br_ratio)
     except TypeError:
-        br_ratio = [k*br_ratio**k for k in range(4)]
+        br_ratio = [k * br_ratio**k for k in range(4)]
         Nbrs = len(br_ratio)
     if not np.iterable(osc_strengths):
         strngth = osc_strengths
-        osc_strengths = np.zeros((Ngs, Nes),dtype='O')
-        osc_strengths[np.diag_indices(min(Ngs,Nes))]=1.
+        osc_strengths = np.zeros((Ngs, Nes), dtype='O')
+        osc_strengths[np.diag_indices(min(Ngs, Nes))] = 1.
         for k in range(Ngs):
-            for l in range(Nes):
-                df = int(abs(k-l))
-                if df ==0: # Like-to-like transition
-                    osc_strengths[k,l]=strngth
-                if df < len(br_ratio) and df>0: #Second order or further...
-                    osc_strengths[k,l]= strngth*br_ratio[df]
-    #--------------------------------------------------------
+            for i in range(Nes):
+                df = int(abs(k - i))
+                if df == 0:  # Like-to-like transition
+                    osc_strengths[k, i] = strngth
+                if df < len(br_ratio) and df > 0:  # Second order or further...
+                    osc_strengths[k, i] = strngth * br_ratio[df]
+    # --------------------------------------------------------
     # Add field interaction operators (oscillator strengths)
     Esym = sm.symbols('Ef', complex=True)
     for k, es in enumerate(esL):
-        for l, gs in enumerate(gsL):
-            term = Esym*toDense(es * gs.dag()) + sm.conjugate(Esym)*toDense(gs * es.dag())
+        for i, gs in enumerate(gsL):
+            term = Esym * toDense(es * gs.dag()) + sm.conjugate(Esym) * toDense(gs * es.dag())
             if H1 is None:
-                H1 = 0.5*sm.sqrt(osc_strengths[l,k]) * term
+                H1 = 0.5 * sm.sqrt(osc_strengths[i, k]) * term
             else:
-                H1 += 0.5*sm.sqrt(osc_strengths[l,k]) * term
+                H1 += 0.5 * sm.sqrt(osc_strengths[i, k]) * term
 
-    #----------------------------------------------
+    # ----------------------------------------------
     # H0 Evolution
     H0 = q.zero_ket(Nstates) * q.zero_ket(Nstates).dag()
     Hdet = H0.copy()
@@ -180,29 +187,29 @@ def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-1
 
     Hdet = toDense(q.qdiags(np.hstack([np.zeros(Ngs), np.ones(Nes)]), offsets=0))
 
-    #-------------------------------------------------
+    # -------------------------------------------------
     # Decay. If decay_rate is not given, assume it scales
     #    with oscillator strength. Otherwise, T1_opt does nothing
-    gamma = 1./T1_opt
+    gamma = 1. / T1_opt
     if decay_rates is None:
-        decay_rates = [[ gamma*osc_strengths[l][k]  for k in range(len(esL))] \
-                            for l in range(len(gsL))]
+        decay_rates = [[gamma * osc_strengths[l][k] for k in range(len(esL))]
+                       for l in range(len(gsL))]
 
     c_opL = []
     for k, es in enumerate(esL):
-        for l, gs in enumerate(gsL):
+        for i, gs in enumerate(gsL):
             #c_opL.append(sm.sqrt(gamma*osc_strengths[l][k]) * toDense(gs * es.dag()))
-            c_opL.append(sm.sqrt(decay_rates[l][k]) * toDense(gs * es.dag()))
+            c_opL.append(sm.sqrt(decay_rates[i][k]) * toDense(gs * es.dag()))
 
     # T2s
     if coh_decay_rates != 0:
         if not iterable(coh_decay_rates):
             rate = coh_decay_rates
-            coh_decay_rates = [[ rate  for k in range(len(esL))] \
-                                for l in range(len(gsL))]
+            coh_decay_rates = [[rate for k in range(len(esL))]
+                               for i in range(len(gsL))]
         for k, es in enumerate(esL):
-            for l, gs in enumerate(gsL):
-                c_opL.append(sm.sqrt(coh_decay_rates[l][k]) * toDense(1j*gs * es.dag() - 1j*es*gs.dag()) )
+            for i, gs in enumerate(gsL):
+                c_opL.append(sm.sqrt(coh_decay_rates[i][k]) * toDense(1j * gs * es.dag() - 1j * es * gs.dag()))
 
     # An attempt to compensate for 'edge' transitions having different rates
     if T1_opt != -1 and 0:
@@ -210,7 +217,7 @@ def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-1
         # gamma_tot =
         gamma_1 = gamma_tot / (1 + 2 * br_ratio)
         gamma_2 = br_ratio * gamma_1
-        #Make collapse operators
+        # Make collapse operators
         c_opL = [sm.sqrt(gamma_1) * toDense(gs * es.dag()) for gs, es in zip(gsL, esL)]
         c_opL += [sm.sqrt(gamma_2) * toDense(gs * es.dag()) for gs, es in zip(gsL[1:], esL)]
         c_opL += [sm.sqrt(gamma_2) * toDense(gs * es.dag()) for gs, es in zip(gsL, esL[1:])]
@@ -218,32 +225,33 @@ def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-1
         print(c_opL)
 
     delt = sm.symbols('Delta', real=True)
-    #Hlst=[
-    return H0, (Esym,H1), (delt, Hdet), c_opL
+    # Hlst=[
+    return H0, (Esym, H1), (delt, Hdet), c_opL
 
 
 def Coh(M): return list(np.array(M)[np.triu_indices(M.shape[0], 1)])
 
+
 def Dia(M): return list(np.array(M)[np.diag_indices(M.shape[0])])
 
-def All(M): return list(np.array(M)[np.triu_indices(M.shape[0], 0)])
 
+def All(M): return list(np.array(M)[np.triu_indices(M.shape[0], 0)])
 
 
 def makeMESymb_cacheable(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     """WIP: Idea is to have a cacheable version of makeMESymb as this can be
     an expensive calculation. Tricky to do for sympy reasons though...
     """
-    raise NotImplementedError;
+    raise NotImplementedError
     print(str(H_L), str(c_opL), str(e_opL))
     return
 
+
 def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
-    """ Take the Hamiltonia,coeficients and return density matrix evolution expressions
-    Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]
-    """
+    """Take the Hamiltonia,coeficients and return density matrix evolution
+    expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]"""
     print('makeMESymb enter', flush=True)
-    #Make the liouvillian-----------------------------------
+    # Make the liouvillian-----------------------------------
     H0 = sm.SparseMatrix(H_L.pop(0))
     Nstates = H0.shape[0]
 
@@ -253,16 +261,16 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     # Construct Hamiltonian part
     L = liouvillianS(H0)
     for el in H_L:
-        if np.iterable(el) and not type(el) == q.Qobj and not type(el) ==np.matrix and not type(el)==np.array:
+        if np.iterable(el) and not type(el) == q.Qobj and not type(el) == np.matrix and not type(el) == np.array:
             sym, op = el
         else:
             print("no coefficient for a hamiltonian element. Will assume it's 1")
             sym = 1.
             op = sm.SparseMatrix(el)
-        L += sym*liouvillianS(op)
+        L += sym * liouvillianS(op)
 
     for el in c_opL[:]:
-        if np.iterable(el) and not type(el) == q.Qobj and not type(el) ==np.matrix and not type(el)==np.array:
+        if np.iterable(el) and not type(el) == q.Qobj and not type(el) == np.matrix and not type(el) == np.array:
             coef, op = el
         else:
             coef = 1.
@@ -270,14 +278,14 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
         op = sm.SparseMatrix(op)
         L += coef * liouvillianS(None, cOpL=[op])
 
-    #Get drho_dt
+    # Get drho_dt
     drho_dtS = (L * rhoS.reshape(Nstates**2, 1)).reshape(
         Nstates, Nstates)  # *sm.Matrix(rs)
     drho_dtS.simplify()
 
     e_op_outL = []
     for op in e_opL:
-        ex = sm.Trace(rhoS*op).doit()#np.sum(array(H1[off_diag_ind])*array(rhoS)[off_diag_ind]).subs(Esym,1)
+        ex = sm.Trace(rhoS * op).doit()  # np.sum(array(H1[off_diag_ind])*array(rhoS)[off_diag_ind]).subs(Esym,1)
         ex = ex.simplify()
         e_op_outL.append(ex)
     eq = sm.Eq(rhoS, drho_dtS)
@@ -287,105 +295,106 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     return lhsL, rhsL, e_op_outL
 
 
-#Pretty printing of sympy matrices
+# Pretty printing of sympy matrices
 try:
     import re
     from IPython.display import HTML, display, Latex
     import pandas as pd
+
     def smDataFrame(mat):
-        """Takes a dataframe with sympy elements, and returns it in a display-friendly format.
-        """
-        pd.options.display.max_colwidth=100
-        matNew=np.reshape(list(map(lambda tc: '$'+sm.latex(tc)+'$',np.ravel(mat))),np.shape(mat))
+        """Takes a dataframe with sympy elements, and returns it in a display-
+        friendly format."""
+        pd.options.display.max_colwidth = 100
+        matNew = np.reshape(list(map(lambda tc: '$' + sm.latex(tc) + '$', np.ravel(mat))), np.shape(mat))
         df = pd.DataFrame(matNew, index=mat.index, columns=mat.columns)
         return df
 
-    def formatComplexDF(df, prec=1, title=None, topLeft = None):
-        fpNumRE ='(-?\d*(\.\d+)?)'
-        imNumRE = '(-?\d*(\.\d+)?j)'
-        r=re.compile('(>\$?)\(?({0}\+)?{1}\)?(\$?<)'.format(fpNumRE,imNumRE))
+    def formatComplexDF(df, prec=1, title=None, topLeft=None):
+        fpNumRE = r'(-?\d*(\.\d+)?)'
+        imNumRE = r'(-?\d*(\.\d+)?j)'
+        r = re.compile(r'(>\$?)\(?({0}\+)?{1}\)?(\$?<)'.format(fpNumRE, imNumRE))
 
         def f(m, prc=prec):
-            op,_, rlSt,_,imSt,_,en = m.groups()
+            op, _, rlSt, _, imSt, _, en = m.groups()
             if rlSt is None:
                 if imSt == "0j":
-                    rlSt ="0"
+                    rlSt = "0"
                 else:
-                    rlSt =""
-            parts=rlSt.split('.')
-            if len(parts)>1:
+                    rlSt = ""
+            parts = rlSt.split('.')
+            if len(parts) > 1:
                 rlSt = "{0}.{1}".format(parts[0], parts[1][:prc])
 
-            parts=imSt[:-1].split('.')
-            if len(parts)>1:
+            parts = imSt[:-1].split('.')
+            if len(parts) > 1:
                 imSt = "{0}.{1}j".format(parts[0], parts[1][:prc])
 
-
             if imSt == "0j":
-                imSt =""
+                imSt = ""
             bPls = True if (rlSt and imSt) else False
-            #return rlSt +bPls*"+" +imSt
-            return "{0}{1}{2}{3}{4}".format(op,rlSt, bPls*"+", imSt,en)
+            # return rlSt +bPls*"+" +imSt
+            return "{0}{1}{2}{3}{4}".format(op, rlSt, bPls * "+", imSt, en)
 
         htmlStr = df.to_html()
         if title is not None:
-                titleStr="<hr><H3>{}:</H3>".format(title)
+            titleStr = "<hr><H3>{}:</H3>".format(title)
         else:
             titleStr = ""
         if topLeft is not None:
-            htmlStr=htmlStr.replace('<th></th>', '<th>{}</th>'.format(topLeft), 1)
+            htmlStr = htmlStr.replace('<th></th>', '<th>{}</th>'.format(topLeft), 1)
 
-        return HTML(titleStr + r.sub(f,htmlStr))
+        return HTML(titleStr + r.sub(f, htmlStr))
 except ModuleNotFoundError:
     print("No pretty printing stuff (probably because no Pandas)")
 
-if __name__=="__main__":
-    #Tests
+if __name__ == "__main__":
+    # Tests
 
-    #sympy_me.py testSpline
+    # sympy_me.py testSpline
 
     def test_makeMESymb():
         pass
+
     def test_constructBlochHamiltonian():
         pass
 
     # OLD TESTS
     def test_makeEvolutionFuncs():
-        H0 = toDense(q.sigmaz()*q.sigmaz().dag())
-        H1= toDense(q.sigmax())
-        c_opL= [toDense(q.destroy(2))]
+        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
+        H1 = toDense(q.sigmax())
+        c_opL = [toDense(q.destroy(2))]
         delt = sm.symbols('Delta', real=True)
-        coefs, diagL, cohL, coh_dtM, diag_dtM, polS =makeEvolutionFuncs(H0, toDense(q.qeye(H0.shape[0])), 1*[ (delt,H1)], c_opL, bSymbOnly=True)
+        coefs, diagL, cohL, coh_dtM, diag_dtM, polS = makeEvolutionFuncs(
+            H0, toDense(q.qeye(H0.shape[0])), 1 * [(delt, H1)], c_opL, bSymbOnly=True)
         return coefs, diagL, cohL, coh_dtM, diag_dtM, polS
 
     def test_makeEvolutionSymbollic():
         """Incomplete- test how the symbollic side of things works"""
-        H0 = toDense(q.sigmaz()*q.sigmaz().dag())
-        H1= toDense(q.sigmax())
-        c_opL= [toDense(q.destroy(2))]
+        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
+        H1 = toDense(q.sigmax())
+        c_opL = [toDense(q.destroy(2))]
         delt = sm.symbols('Delta', real=True)
         Ef = sm.symbols("Ef")
-        #def makeEvolutionFuncsHardWork(H0, H1, HlstM=[], c_opL=[], rhoS=None):
-        out=makeEvolutionSymbs(H0+delt*H1, c_opL, rhoS=getRhoS(H0.shape[0]))
+        # def makeEvolutionFuncsHardWork(H0, H1, HlstM=[], c_opL=[], rhoS=None):
+        out = makeEvolutionSymbs(H0 + delt * H1, c_opL, rhoS=getRhoS(H0.shape[0]))
         return out
 
-
     def test_makeEvolutionFuncs_numerical():
-        H0 = toDense(q.sigmaz()*q.sigmaz().dag())
-        H1= toDense(q.sigmax())
-        c_opL= [toDense(q.destroy(2))]
+        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
+        H1 = toDense(q.sigmax())
+        c_opL = [toDense(q.destroy(2))]
         delt = sm.symbols('Delta', real=True)
-        dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh = makeEvolutionFuncs(H0, toDense(q.sigmax()), 1*[ (delt,H1)], c_opL, bSymbOnly=False)
+        dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh = makeEvolutionFuncs(
+            H0, toDense(q.sigmax()), 1 * [(delt, H1)], c_opL, bSymbOnly=False)
         return dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh
 
     def test_makeBlochEqSyms():
-        H0 = toDense(q.sigmaz()*q.sigmaz().dag())
-        H1= toDense(q.sigmax())
-        c_opL= [toDense(q.destroy(2))]
+        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
+        H1 = toDense(q.sigmax())
+        c_opL = [toDense(q.destroy(2))]
         delt = sm.symbols('Delta', real=True)
         Ef = sm.symbols("Ef")
-        return makeBlochEqSymbs(H0, Hfield_L=[[Ef,H1]], Hother_L=[], c_opL=[], rhoS=None)
-
+        return makeBlochEqSymbs(H0, Hfield_L=[[Ef, H1]], Hother_L=[], c_opL=[], rhoS=None)
 
     #coefs, diagL, cohL, coh_dtM, diag_dtM, polS= test_makeEvolutionFuncs()
     #dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh = test_makeEvolutionFuncs_numerical()

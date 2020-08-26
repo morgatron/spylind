@@ -10,6 +10,8 @@ Spylind
 
 
 Simple definition and fast solution of quantum systems described by a Lindblad master equation.
+Has a strong comparison with qutip's 'mesolve'. Spylind will be slower for many (especially small)
+systems, but can be extended to solve ensembles of coupled ME systems fairly easily.
 
 * Free software: 3-clause BSD license
 * Documentation: (COMING SOON!) https://morgatron.github.io/spylind.
@@ -18,3 +20,4 @@ Features
 --------
 
 * TODO
+* Major todo: solidify interface with Tensorflow and finding of gradients.

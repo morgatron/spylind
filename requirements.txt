@@ -2,3 +2,6 @@
 tensorflow
 numpy
 scipy
+sympy
+munch
+qutip
