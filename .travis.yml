@@ -6,18 +6,26 @@ cache:
     - $HOME/.cache/pip
     - $HOME/.ccache  # https://github.com/travis-ci/travis-ci/issues/5853
 
+env:
+  global:
+    # Doctr deploy key for morgatron/spylind
+    - secure: "pLxiCIr/3LRnDQSdEHxsDWKRi9pPz6MZkj4BPCPiWUFf0zpwgdezb1ZCRtJDLIR5UE+yMQoFK77zyoVOhqeE1ZqkXxz/ECkBh8QhjindF1SSuvPVZ2ONG6PtbZf9/tIG3T72tX1x9fb57yZD4Jt9xdlUfgz3rA2Pwd/xA8Jt4h9bib3XFj3QBv5u4MdoCTgbeASuf0C2KKLtFbbGOtyK6an3NioT7GFLxNljLIK07V9skFpqgyYE6HTv2wuyOcmitmx4qkpe7Nn347BV8G2CL8LkxfpnPcMZVVsLUhpRX8n5TIo+jNGFMhY5AFgsJjHL4QIyFTySId9CT6yYueUTy9KIaYWDrZc2JuWIvjOe9NEx6ywKQ1h2UqBRMDsiHAF9OTiouRVaQKzn/7/9y3WJixNZje9sfWqSUY5tgHxWhtTwPuKlKzgcSKMppQv+EL3TFUMnlmRH+kECJmbGieAvT/X20TsPKCoWCPNW6BevHMKKvN8cVXYNAmZ8iN8jmfYvDmmD7aSbELVzRxWQ7EIg5QexeZq1BKCjg++mJx1acIrV2Q2Jx8E7Z0H8l7O4L9tdopDioEi1zOBTinF59D2LNZdkzcOhAAj0ue2eteWKgrqFMrU2v/p379Mnoh5BeGY2vgFPZzGmxNMcmpCcb7wakwxKSmktslIBwM81kMlbP9E="
+
+    script:
+
 install:
-  # The versions of pip and numpy that come pre-installed are often too old and
-  # can cause problems. Upgrade them.
-  - pip install --upgrade pip numpy
   # Install this package and the packages listed in requirements.txt.
   - pip install .
   # Install extra requirements for running tests and building docs.
   - pip install -r requirements-dev.txt
+
 
 script:
   - coverage run -m pytest  # Run the tests and check for test coverage.
   - coverage report -m  # Generate test coverage report.
   - codecov  # Upload the report to codecov.
   - flake8  # Enforce code style ('relaxed' line length limit is set in .flake8 config file).
+  - set -e
   - make -C docs html  # Build the documentation.
+  - pip install doctr
+  - doctr deploy --built-docs docs/build/html .  # Publish the documentation.
