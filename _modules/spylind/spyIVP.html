@@ -1,0 +1,950 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>spylind.spyIVP &mdash; Spylind 0.post6+ge359cad documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/copybutton.css" type="text/css" />
+
+  
+  
+  
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/underscore.js"></script>
+        <script src="../../_static/doctools.js"></script>
+        <script src="../../_static/language_data.js"></script>
+        <script src="../../_static/clipboard.min.js"></script>
+        <script src="../../_static/copybutton.js"></script>
+    
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../../index.html" class="icon icon-home" alt="Documentation Home"> Spylind
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.post6+ge359cad
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../release-history.html">Release History</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../todo.html">Near-term planned features/todos</a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Spylind</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../../index.html" class="icon icon-home"></a> &raquo;</li>
+        
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+        
+      <li>spylind.spyIVP</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for spylind.spyIVP</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot; Kind of an NDSolve replacement for sympy</span>
+
+<span class="sd">Plan: a class called ODESolver. Takes a symbollic dy_dt as input, as well as as</span>
+<span class="sd">python or symbollic functions for indep variables</span>
+<span class="sd">It will/can:</span>
+<span class="sd">    1. Do some preprocessing to simplify and eliminate unchanging state</span>
+<span class="sd">        variables</span>
+<span class="sd">    2. Will prepare a fast(ish) function that evaluates the derivative, and</span>
+<span class="sd">        only evolves the necessary bits</span>
+<span class="sd">    3. Gives an interface to solvers to actually do the integration, given initial variables</span>
+<span class="sd">    4. Can process the output back into the original format.</span>
+<span class="sd">    5. Optionally takes a list of actually desired outputs, so that others potentially don&#39;t have to be calculated.</span>
+
+
+<span class="sd"># Notes for various builtins</span>
+
+<span class="sd"># Decomposition into real and imaginary parameters</span>
+<span class="sd">In general, the equations we use(especially master equations) will will have</span>
+<span class="sd">both real and complex state variables and paramters. The simplest way to deal</span>
+<span class="sd">with this is to make everything complex, and use an ODE solver that supports complex arithmetic. This is the default approach, but is obviously not generally optimal. However by setting</span>
+<span class="sd">bDecompose_to_re_im, we will instead attempt to decompose all equations into</span>
+<span class="sd">real and imaginary parts, resulting in a larger system of only real equations.</span>
+
+<span class="sd">This means the following changes should be attempted by code:</span>
+<span class="sd">* when __init__ is called, the type of symbols will be used to determine the final</span>
+<span class="sd">    call signature. The equation dict(dy_dtD) will be decomposed.</span>
+<span class="sd">* when set_driving is called, symbols that aren&#39;t exiplicitly set as &#39;real&#39; will have</span>
+<span class="sd">    their functions re - wrapped into two: to take the real and imaginary parts.</span>
+<span class="sd">* when set_state_dep_funcs is called, any functions will be re - wrapped to take the new</span>
+<span class="sd"> call signature(of pure real values)</span>
+<span class="sd">* when set_inititial_values is called, complex(non - real) parameters will be expanded</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sympy</span> <span class="k">as</span> <span class="nn">sm</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">numpy</span> <span class="kn">import</span> <span class="n">linspace</span><span class="p">,</span> <span class="n">arange</span>
+<span class="kn">import</span> <span class="nn">pdb</span>
+<span class="kn">from</span> <span class="nn">munch</span> <span class="kn">import</span> <span class="n">Munch</span><span class="p">,</span> <span class="n">munchify</span>
+
+<span class="kn">from</span> <span class="nn">scipy</span> <span class="kn">import</span> <span class="n">integrate</span>
+<span class="kn">import</span> <span class="nn">tensorflow</span> <span class="k">as</span> <span class="nn">tf</span>
+<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">chain</span>
+<span class="kn">from</span> <span class="nn">collections.abc</span> <span class="kn">import</span> <span class="n">Mapping</span>
+
+
+<span class="k">def</span> <span class="nf">list_diff</span><span class="p">(</span><span class="n">first</span><span class="p">,</span> <span class="n">second</span><span class="p">):</span>
+    <span class="n">second</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">second</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">first</span> <span class="k">if</span> <span class="n">item</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">second</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">expand_list_to_re_im</span><span class="p">(</span><span class="n">sym_list</span><span class="p">):</span>
+    <span class="n">re_im_out_L</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">sym_list</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">:</span>
+            <span class="n">re_im_out_L</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">re_im_out_L</span><span class="o">.</span><span class="n">append</span><span class="p">()</span>
+    <span class="c1"># all complex symbols</span>
+    <span class="n">complex_syms</span> <span class="o">=</span> <span class="p">[</span><span class="n">sym</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">sym_list</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">expand_to_re_im</span><span class="p">(</span><span class="n">eqD</span><span class="p">,</span> <span class="n">bNumericalRHS</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>  <span class="c1"># , indep_syms):</span>
+    <span class="sd">&quot;&quot;&quot; Take a system of potentially complex symbol:expression pairs and return</span>
+<span class="sd">    a similar object with all complex symbols/expressions replaced with their</span>
+<span class="sd">    real and imaginary parts.</span>
+
+<span class="sd">    The pairs are assumed to be in a dictionary, eqD. Any complex LHS symbols,</span>
+<span class="sd">    will result in an extra pair (for real and imaginary parts). It also means replacing</span>
+<span class="sd">    any complex RHS symbols by their real and imaginary components.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    eqD : dict</span>
+<span class="sd">        A mapping of symbol:expression pairs</span>
+<span class="sd">    bNumericalRHS : bool</span>
+<span class="sd">        If True, will assume that the expressions are numbers/arrays</span>
+<span class="sd">        of sympy objects.</span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    real_eqD : the realified map</span>
+<span class="sd">    complex_subsD : a mapping from any original complex symbols to their newly</span>
+<span class="sd">        defined componentes (e.g. x: x_r + 1j*x_i). The purpose is to be used in</span>
+<span class="sd">        substitutions.</span>
+<span class="sd">    symbol_mapD : a mapping from old symbols to new ones.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">lhsL</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="c1"># display(lhsL)</span>
+    <span class="n">rhsL</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">bNumericalRHS</span><span class="p">:</span>
+        <span class="n">rhsSyms</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">rhsSyms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">rhsL</span><span class="p">)</span><span class="o">.</span><span class="n">free_symbols</span><span class="p">)</span>
+    <span class="n">indep_syms</span> <span class="o">=</span> <span class="n">list_diff</span><span class="p">(</span><span class="n">rhsSyms</span><span class="p">,</span> <span class="n">lhsL</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">expand_sym</span><span class="p">(</span><span class="n">sym</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">sym</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;^r&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;^i&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+    <span class="n">symbol_mapD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">expand_sym</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">lhsL</span> <span class="o">+</span> <span class="n">indep_syms</span><span class="p">}</span>
+    <span class="n">complex_subsD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">val</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">sm</span><span class="o">.</span><span class="n">I</span> <span class="o">*</span> <span class="n">val</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                     <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">symbol_mapD</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">}</span>
+    <span class="c1"># display(complex_subsD) #Replacement map for symbols</span>
+
+    <span class="n">new_lhsL</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">new_rhsL</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">ex</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">bNumericalRHS</span><span class="p">:</span>
+            <span class="n">rhsRe</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">real</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
+            <span class="n">rhsIm</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">imag</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">rhsRe</span><span class="p">,</span> <span class="n">rhsIm</span> <span class="o">=</span> <span class="n">ex</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">complex_subsD</span><span class="p">)</span><span class="o">.</span><span class="n">as_real_imag</span><span class="p">()</span>
+            <span class="n">rhsRe</span> <span class="o">=</span> <span class="n">rhsRe</span><span class="o">.</span><span class="n">simplify</span><span class="p">()</span>
+            <span class="n">rhsIm</span> <span class="o">=</span> <span class="n">rhsIm</span><span class="o">.</span><span class="n">simplify</span><span class="p">()</span>
+        <span class="n">new_rhsL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">rhsRe</span><span class="p">)</span>
+        <span class="c1"># display(sym)</span>
+        <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">:</span>
+            <span class="n">new_lhsL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">new_lhsL</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">complex_subsD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span><span class="o">.</span><span class="n">as_real_imag</span><span class="p">())</span>
+            <span class="n">new_rhsL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">rhsIm</span><span class="p">)</span>
+    <span class="c1"># lhs_sym_mapD</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">new_lhsL</span><span class="p">,</span> <span class="n">new_rhsL</span><span class="p">)),</span> <span class="n">complex_subsD</span><span class="p">,</span> <span class="n">symbol_mapD</span>
+
+
+<span class="k">def</span> <span class="nf">flatten_inputs</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">nDims</span><span class="p">,</span> <span class="n">nStates</span><span class="p">,</span> <span class="n">nDriving</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">wrapped</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">k</span> <span class="o">=</span> <span class="mi">1</span>
+
+        <span class="n">dimAxs</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">:</span><span class="n">k</span> <span class="o">+</span> <span class="n">nDims</span><span class="p">]</span>
+        <span class="n">k</span> <span class="o">+=</span> <span class="n">nDims</span>
+
+        <span class="n">state</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">:</span><span class="n">k</span> <span class="o">+</span> <span class="n">nStates</span><span class="p">]</span>
+        <span class="n">k</span> <span class="o">+=</span> <span class="n">nStates</span>
+
+        <span class="n">driving</span> <span class="o">=</span> <span class="n">args</span><span class="p">[</span><span class="n">k</span><span class="p">:</span><span class="n">k</span> <span class="o">+</span> <span class="n">nDriving</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">dimAxs</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">driving</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">wrapped</span>
+
+
+<span class="k">def</span> <span class="nf">realify</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">which_complex_in</span><span class="o">=</span><span class="p">[],</span> <span class="n">which_complex_out</span><span class="o">=</span><span class="p">[]):</span>
+    <span class="sd">&quot;&quot;&quot; Take a function with a mixture of real and complex numbers and make</span>
+<span class="sd">    it a &#39;real&#39; function by expanding the complex arguments and complex outputs</span>
+<span class="sd">    to real/imaginary components</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    -----------</span>
+<span class="sd">    f : base function to be &#39;realified&#39;.</span>
+<span class="sd">    which_complex_in : list of boolean values</span>
+<span class="sd">        Has same length as number of input arguments to f. A false value denotes</span>
+<span class="sd">        that argument position as a real number, a True value indicates complex.</span>
+<span class="sd">    which_complex_out : list</span>
+<span class="sd">        Same length as number of return values for f. Same format as which_complex_in</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    wrap_func: A function that takes and returns real numbers only</span>
+
+<span class="sd">    Example:</span>
+<span class="sd">    Consider a function of 4 parameters, with signature:</span>
+<span class="sd">        f_in(r_p1, c_p2, c_p3, r_p4) -&gt; c_o1, r_o2</span>
+<span class="sd">    Here the first and fourth parameters</span>
+<span class="sd">    are real, and the second and third are complex. It returns 2 numbers, the</span>
+<span class="sd">    first of which is complex while the second is purely real.</span>
+<span class="sd">    &gt;&gt;&gt; def f_in( r_p1, c_p2, c_p3, r_p4):</span>
+<span class="sd">            c_o1 = r_p1 + c_p2.real*c_p3</span>
+<span class="sd">            r_o2 = r_p4 + c_p2.imag</span>
+<span class="sd">            return c_o1, r_o2</span>
+<span class="sd">    &gt;&gt;&gt; f_in(1, 1+1j, 0.5+3j, 5)</span>
+
+<span class="sd">    We call realify as</span>
+<span class="sd">    &gt;&gt;&gt; f_out = realify(f_in, which_complex_in = [0,1,1, 0],</span>
+<span class="sd">                            which_complex_out = [1,0])</span>
+<span class="sd">    &gt;&gt;&gt; f_out(1, 1, 1, 0.5, 3, 5)</span>
+<span class="sd">    That is, the resulting f_out has signature:</span>
+<span class="sd">            f_out(r_arg1, c_arg2_r, c_arg2_i, c_arg3_r, c_arg3_i, r_arg4)</span>
+<span class="sd">                                -&gt; c_out1_r, c_out1_i, r_out2</span>
+
+
+<span class="sd">    Notes:</span>
+<span class="sd">    The current implentation is going to be relatively slow. Could maybe make it somewhat</span>
+<span class="sd">    quicker using type hints and tuples instead of lists, but probably will need</span>
+<span class="sd">    some kind of compilation step (e.g numba or tensorflow) to make it both general and</span>
+<span class="sd">    fast.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">N_orig_in</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">which_complex_in</span><span class="p">)</span>  <span class="c1"># len(real_sig.parameters)</span>
+    <span class="n">N_orig_out</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">which_complex_out</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">wrap_func</span><span class="p">(</span><span class="o">*</span><span class="n">real_args</span><span class="p">):</span>
+        <span class="n">fin_args</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="c1"># Build up the arguments for the real function</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N_orig_in</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">which_complex_in</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                <span class="n">fin_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">real_args</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="n">j</span> <span class="o">*</span> <span class="n">real_args</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">fin_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">real_args</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="c1"># actually call the function</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">f</span><span class="p">(</span><span class="o">*</span><span class="n">fin_args</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">N_orig_out</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="p">[</span><span class="n">output</span><span class="p">]</span>
+
+        <span class="c1"># Same for output</span>
+        <span class="n">fin_output</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N_orig_out</span><span class="p">):</span>
+            <span class="n">fin_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="n">k</span><span class="p">]</span><span class="o">.</span><span class="n">real</span><span class="p">)</span>
+            <span class="c1"># l+=1</span>
+            <span class="k">if</span> <span class="n">which_complex_out</span><span class="p">[</span><span class="n">k</span><span class="p">]:</span>
+                <span class="n">fin_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">output</span><span class="p">[</span><span class="n">k</span><span class="p">]</span><span class="o">.</span><span class="n">imag</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">fin_output</span>
+    <span class="k">return</span> <span class="n">wrap_func</span>
+
+
+<div class="viewcode-block" id="ODESolver"><a class="viewcode-back" href="../../usage.html#spylind.spyIVP.ODESolver">[docs]</a><span class="k">class</span> <span class="nc">ODESolver</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1">#lambdify_modules = [{&#39;conjugate&#39;:tf.math.conj}, &#39;tensorflow&#39;]</span>
+    <span class="n">lambdify_modules</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;numpy&#39;</span><span class="p">]</span>
+    <span class="c1">#backend = &#39;tensorflow&#39;</span>
+    <span class="n">backend</span> <span class="o">=</span> <span class="s1">&#39;numpy&#39;</span>
+    <span class="n">stateDepSubsD</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">stateDepFD</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">tDepSubsD</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">tDepFD</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">_online_process_func</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dy_dtD</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">{},</span> <span class="n">tSym</span><span class="o">=</span><span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;t&#39;</span><span class="p">),</span> <span class="n">driving_syms</span><span class="o">=</span><span class="p">[],</span>
+                 <span class="n">state_dep_syms</span><span class="o">=</span><span class="p">[],</span>
+                 <span class="n">bDecompose_to_re_im</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">backend</span><span class="o">=</span><span class="s1">&#39;numpy&#39;</span><span class="p">,</span> <span class="n">default_dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">complex128</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">backend</span> <span class="o">=</span> <span class="n">backend</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dims</span> <span class="o">=</span> <span class="n">dims</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">dims</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dimSyms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">dims</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">([</span><span class="n">dim</span><span class="o">.</span><span class="n">size</span> <span class="k">for</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tSym</span> <span class="o">=</span> <span class="n">tSym</span>
+        <span class="c1"># np.float64 if bDecompose_to_re_im else np.complex128</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">default_dtype</span> <span class="o">=</span> <span class="n">default_dtype</span>
+
+        <span class="c1"># Take care of any python data types</span>
+        <span class="n">dy_dtD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">sm</span><span class="o">.</span><span class="n">sympify</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">dy_dtD</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="k">if</span> <span class="n">bDecompose_to_re_im</span><span class="p">:</span>
+            <span class="n">propagated_state_syms</span><span class="p">,</span> <span class="n">stationary_state_syms</span><span class="p">,</span> <span class="n">indep_syms</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sort_symbols</span><span class="p">(</span>
+                <span class="n">dy_dtD</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">symsD_orig</span> <span class="o">=</span> <span class="n">munchify</span><span class="p">({</span><span class="s1">&#39;tSym&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">tSym</span><span class="p">,</span>
+                                        <span class="s1">&#39;dimSyms&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimSyms</span><span class="p">,</span>
+                                        <span class="s1">&#39;prop_state_syms&#39;</span><span class="p">:</span> <span class="n">propagated_state_syms</span><span class="p">,</span>
+                                        <span class="s1">&#39;stationary_state_syms&#39;</span><span class="p">:</span> <span class="n">stationary_state_syms</span><span class="p">,</span>  <span class="c1"># Not yet used</span>
+                                        <span class="s1">&#39;driving_syms&#39;</span><span class="p">:</span> <span class="n">driving_syms</span><span class="p">,</span>
+                                        <span class="s1">&#39;state_dep_syms&#39;</span><span class="p">:</span> <span class="n">list_diff</span><span class="p">(</span><span class="n">indep_syms</span><span class="p">,</span> <span class="n">driving_syms</span><span class="p">),</span>
+                                        <span class="p">})</span>
+            <span class="c1">#input_syms = driving_syms + state_dep_syms</span>
+            <span class="n">lhs_syms_orig</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">dy_dtD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+            <span class="n">dy_dtD</span><span class="p">,</span> <span class="n">complex_subsD</span><span class="p">,</span> <span class="n">symbol_mapD</span> <span class="o">=</span> <span class="n">expand_to_re_im</span><span class="p">(</span><span class="n">dy_dtD</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">complex_subsD</span> <span class="o">=</span> <span class="n">complex_subsD</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">symbol_mapD</span> <span class="o">=</span> <span class="n">symbol_mapD</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state_func_sig_orig</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">tSym</span><span class="p">]</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimSyms</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">propagated_state_syms</span><span class="p">)</span> <span class="o">+</span> \
+                <span class="nb">list</span><span class="p">(</span><span class="n">stationary_state_syms</span><span class="p">)</span> <span class="o">+</span> <span class="n">driving_syms</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dy_dtD</span> <span class="o">=</span> <span class="n">dy_dtD</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sim_size</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dy_dtD</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">product</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_shape</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">dy_dtD</span><span class="p">)]</span> <span class="o">+</span> <span class="p">[</span><span class="n">dim</span><span class="o">.</span><span class="n">size</span> <span class="k">for</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bDecompose_to_re_im</span> <span class="o">=</span> <span class="n">bDecompose_to_re_im</span>
+
+        <span class="n">propagated_state_syms</span><span class="p">,</span> <span class="n">stationary_state_syms</span><span class="p">,</span> <span class="n">indep_syms</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sort_symbols</span><span class="p">(</span>
+            <span class="n">dy_dtD</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">symsD</span> <span class="o">=</span> <span class="n">munchify</span><span class="p">({</span><span class="s1">&#39;tSym&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">tSym</span><span class="p">,</span>
+                               <span class="s1">&#39;dimSyms&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimSyms</span><span class="p">,</span>
+                               <span class="s1">&#39;prop_state_syms&#39;</span><span class="p">:</span> <span class="n">propagated_state_syms</span><span class="p">,</span>
+                               <span class="s1">&#39;stationary_state_syms&#39;</span><span class="p">:</span> <span class="n">stationary_state_syms</span><span class="p">,</span>  <span class="c1"># Not yet used</span>
+                               <span class="s1">&#39;driving_syms&#39;</span><span class="p">:</span> <span class="n">driving_syms</span><span class="p">,</span>
+                               <span class="s1">&#39;state_dep_syms&#39;</span><span class="p">:</span> <span class="n">list_diff</span><span class="p">(</span><span class="n">indep_syms</span><span class="p">,</span> <span class="n">driving_syms</span><span class="p">),</span>
+                               <span class="p">})</span>
+        <span class="n">state_func_sig</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">tSym</span><span class="p">]</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimSyms</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">propagated_state_syms</span><span class="p">)</span> <span class="o">+</span> \
+            <span class="nb">list</span><span class="p">(</span><span class="n">stationary_state_syms</span><span class="p">)</span> <span class="o">+</span> <span class="n">driving_syms</span>
+        <span class="k">if</span> <span class="n">bDecompose_to_re_im</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">ensure_list</span><span class="p">(</span><span class="n">el</span><span class="p">):</span> <span class="k">return</span> <span class="n">el</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">iterable</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="k">else</span> <span class="p">[</span><span class="n">el</span><span class="p">]</span>
+            <span class="c1"># expand_to_re_im(state_func_sig)</span>
+            <span class="n">state_func_sig</span> <span class="o">=</span> <span class="p">[</span><span class="n">ensure_list</span><span class="p">(</span><span class="n">symbol_mapD</span><span class="p">[</span><span class="n">sym</span><span class="p">])</span>
+                              <span class="k">if</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">symbol_mapD</span> <span class="k">else</span> <span class="n">sym</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">state_func_sig</span><span class="p">]</span>
+            <span class="n">state_func_sig</span> <span class="o">=</span> <span class="n">chain</span><span class="p">(</span><span class="o">*</span><span class="n">state_func_sig</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state_func_sig</span> <span class="o">=</span> <span class="n">state_func_sig</span>
+        <span class="nb">print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symsD</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;state dependent functions should have signature </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state_func_sig</span><span class="p">))</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">sort_symbols</span><span class="p">(</span><span class="n">eqD</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Sort symbols in a system of equations defined by eqD.</span>
+
+<span class="sd">        What it&#39;s supposed to do:</span>
+<span class="sd">        Take a dict defining symbols (LHS) and their derivatives (RHS), and sort out:</span>
+<span class="sd">            1. Which LHS symbols don&#39;t change (have a zero derivative)</span>
+<span class="sd">            2. Which RHS symbols need specifying, that is will need to be defined externally</span>
+<span class="sd">            3. If there are any LHS symbols that don&#39;t appear elsewhere and thus</span>
+<span class="sd">            potentially be ignored.</span>
+
+
+<span class="sd">        returns:</span>
+<span class="sd">        -------</span>
+<span class="sd">        propagated_state_syms: LHS symnbols that need to be evolved</span>
+<span class="sd">        stationary_state_syms: LHS symbols that don&#39;t change (RHS==0)</span>
+<span class="sd">        indep_syms: symbols appearing on the RHS that aren&#39;t state syms, which</span>
+<span class="sd">            will need to be specified externally.</span>
+
+<span class="sd">        Notes:</span>
+<span class="sd">        ------</span>
+<span class="sd">        At the moment, this function is mostly aspirational</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">state_syms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+        <span class="n">rhs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="n">rhsSyms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">rhs</span><span class="p">)</span><span class="o">.</span><span class="n">free_symbols</span><span class="p">)</span>
+        <span class="n">indep_syms</span> <span class="o">=</span> <span class="n">list_diff</span><span class="p">(</span><span class="n">rhsSyms</span><span class="p">,</span> <span class="n">state_syms</span><span class="p">)</span>
+        <span class="n">stationary_state_syms</span> <span class="o">=</span> <span class="p">[</span><span class="n">lhs</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">rhsin</span> <span class="ow">in</span> <span class="n">eqD</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">rhs</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="n">propagated_state_syms</span> <span class="o">=</span> <span class="n">list_diff</span><span class="p">(</span><span class="n">state_syms</span><span class="p">,</span> <span class="n">stationary_state_syms</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">propagated_state_syms</span><span class="p">,</span> <span class="n">stationary_state_syms</span><span class="p">,</span> <span class="n">indep_syms</span>
+
+    <span class="k">def</span> <span class="nf">set_initial_conditions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">par0</span><span class="o">=</span><span class="p">{},</span> <span class="n">bRealified</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Set the initial paramters. The main logic here is to account for different ways they might be expressed.</span>
+<span class="sd">        Possibilities are:</span>
+<span class="sd">            * A dictionary of symbol: initial state pairs</span>
+<span class="sd">            * A list of initial states in the appropriate order</span>
+<span class="sd">            * An array of initial states, appropriately sized according to all the dimensions</span>
+<span class="sd">            * The input could be needing to be &#39;realified&#39; to match the new real-only variables.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">        -----------</span>
+<span class="sd">        par0: dictionary of {symbol:state} pairs, or an iterable of states (in the right order)</span>
+<span class="sd">        bRealified: whether it&#39;s being specified in the &#39;realified&#39; format or</span>
+<span class="sd">            original (potentially) complex format. Relevant only if we&#39;re using automatic</span>
+<span class="sd">            decomposition to real-imaginary parts.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Do something to make sure dimensions, order of symbols, are right</span>
+        <span class="c1">#missing_symbols = set(par0.keys()).difference(self.symsD.prop_state_syms)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bDecompose_to_re_im</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">bRealified</span><span class="p">:</span>  <span class="c1"># map complex to real</span>
+            <span class="c1"># Map from position in self.state_syms to self.dy_dD</span>
+            <span class="c1"># Somehow do the mapping based on a dictionary</span>
+            <span class="c1"># par0:{p1:, p2:, p3:} -&gt; par0{p1r:, p1i:, p2i, p3r:, p3i:}</span>
+            <span class="c1"># for k in range(len(par0)):</span>
+            <span class="c1">#    par = par0[k]</span>
+            <span class="c1">#    realified_par0.append(par.real)</span>
+            <span class="c1"># pass</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">par0</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+                <span class="n">par0</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symsD_orig</span><span class="o">.</span><span class="n">prop_state_syms</span><span class="p">,</span> <span class="n">par0</span><span class="p">))</span>
+            <span class="n">par0</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">expand_to_re_im</span><span class="p">(</span><span class="n">par0</span><span class="p">,</span> <span class="n">bNumericalRHS</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="c1">#realified_par0 = []</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Npars</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">par0</span><span class="p">)</span>  <span class="c1"># Should make sure this matches dy_dtD</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">par0</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+            <span class="n">par0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">par0</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                             <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">symsD</span><span class="o">.</span><span class="n">prop_state_syms</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">default_dtype</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c1"># If not a dictionary, assume it&#39;s a list/array with correct order</span>
+            <span class="n">par0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">par0</span><span class="p">)</span>
+
+        <span class="c1"># by now par0 should an iterable of paramters in the required order. Now we&#39;ll broadcast it to</span>
+        <span class="c1"># the other dimensions.</span>
+        <span class="c1"># Assume a uniform initial state</span>
+        <span class="k">if</span> <span class="n">par0</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">par0</span> <span class="o">=</span> <span class="n">par0</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">)</span> <span class="o">*</span> <span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">newShape</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symsD</span><span class="p">[</span><span class="s1">&#39;prop_state_syms&#39;</span><span class="p">]),</span>
+                        <span class="o">*</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">size</span><span class="p">(</span><span class="n">ax</span><span class="p">)</span> <span class="k">for</span> <span class="n">ax</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">])</span>
+            <span class="n">par0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">par0</span><span class="p">,</span> <span class="n">newShape</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">par0</span> <span class="o">=</span> <span class="n">par0</span>
+
+    <span class="k">def</span> <span class="nf">set_driving</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tDepFD</span><span class="o">=</span><span class="p">{}):</span>
+        <span class="sd">&quot;&quot;&quot; Functions that depend only on current value of t</span>
+
+<span class="sd">        If they&#39;re not callables assume they can be substituted in and sorted out by sympy.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">tDepFD</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>  <span class="c1"># Then we&#39;ll assume it&#39;s an iterable</span>
+            <span class="n">tDepFD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">el</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">el</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">symsD</span><span class="o">.</span><span class="n">driving_syms</span><span class="p">,</span> <span class="n">tDepFD</span><span class="p">)}</span>
+        <span class="n">subsD</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">tDepFD</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+            <span class="n">F</span> <span class="o">=</span> <span class="n">tDepFD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">callable</span><span class="p">(</span><span class="n">F</span><span class="p">):</span>
+                <span class="n">subsD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">F</span>
+                <span class="n">tDepFD</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bDecompose_to_re_im</span><span class="p">:</span>  <span class="c1"># Split into real and imagiunary bits</span>
+            <span class="n">tDepFD_ri</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">tDepFD</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">:</span>
+                    <span class="n">tDepFD_ri</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">tDepFD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">sym_r</span><span class="p">,</span> <span class="n">sym_i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">complex_subsD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span><span class="o">.</span><span class="n">as_real_imag</span><span class="p">()</span>
+                    <span class="n">f</span> <span class="o">=</span> <span class="n">tDepFD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span>
+                    <span class="n">tDepFD_ri</span><span class="p">[</span><span class="n">sym_r</span><span class="p">]</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">)</span><span class="o">.</span><span class="n">real</span>
+                    <span class="n">tDepFD_ri</span><span class="p">[</span><span class="n">sym_i</span><span class="p">]</span> <span class="o">=</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">)</span><span class="o">.</span><span class="n">imag</span>
+            <span class="n">tDepFD</span> <span class="o">=</span> <span class="n">tDepFD_ri</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tDepSubsD</span> <span class="o">=</span> <span class="n">subsD</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tDepFD</span> <span class="o">=</span> <span class="n">tDepFD</span>
+
+    <span class="k">def</span> <span class="nf">set_state_dep_funcs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stateDepFD</span><span class="o">=</span><span class="p">{}):</span>
+        <span class="sd">&quot;&quot;&quot;Functions that depend on state and time,</span>
+<span class="sd">        but not history.</span>
+
+<span class="sd">        E.g. E_int = E_in*exp(1j*k*z) + cumsum( P(z) )&gt;..</span>
+<span class="sd">        If they&#39;re not callables assume they can be substituted in and sorted out by sympy.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">subsD</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">F</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">stateDepFD</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">callable</span><span class="p">(</span><span class="n">F</span><span class="p">):</span>
+                <span class="n">subsD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">F</span>
+                <span class="n">stateDepFD</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bDecompose_to_re_im</span><span class="p">:</span>  <span class="c1"># Split into real and imagiunary bits</span>
+            <span class="n">nDims</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="n">nStates</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symsD_orig</span><span class="o">.</span><span class="n">prop_state_syms</span><span class="p">)</span>
+            <span class="n">nDriving</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symsD_orig</span><span class="o">.</span><span class="n">driving_syms</span><span class="p">)</span>
+
+            <span class="n">which_complex_in</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">nDims</span> <span class="o">*</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> \
+                <span class="p">[</span><span class="mi">0</span> <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span> <span class="k">else</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">symsD_orig</span><span class="p">[</span><span class="s1">&#39;prop_state_syms&#39;</span><span class="p">]]</span> <span class="o">+</span> \
+                <span class="p">[</span><span class="mi">0</span> <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span> <span class="k">else</span> <span class="mi">1</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">symsD_orig</span><span class="p">[</span><span class="s1">&#39;driving_syms&#39;</span><span class="p">]]</span>
+            <span class="n">stateDepFD_ri</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">F</span> <span class="ow">in</span> <span class="n">stateDepFD</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="c1"># F_flat takes flattened complex inputs</span>
+                <span class="n">F_flat</span> <span class="o">=</span> <span class="n">flatten_inputs</span><span class="p">(</span><span class="n">F</span><span class="p">,</span> <span class="n">nDims</span><span class="p">,</span> <span class="n">nStates</span><span class="p">,</span> <span class="n">nDriving</span><span class="p">)</span>
+                <span class="n">which_complex_out</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span> <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span> <span class="k">else</span> <span class="mi">1</span><span class="p">]</span>
+                <span class="c1"># F_ri_flat takes flattened real inputs</span>
+                <span class="n">F_ri_flat</span> <span class="o">=</span> <span class="n">realify</span><span class="p">(</span>
+                    <span class="n">F_flat</span><span class="p">,</span> <span class="n">which_complex_in</span><span class="p">,</span> <span class="n">which_complex_out</span><span class="p">)</span>
+                <span class="k">def</span> <span class="nf">F_ri</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">dimAxes</span><span class="p">,</span> <span class="n">states</span><span class="p">,</span> <span class="n">driving</span><span class="p">):</span> <span class="k">return</span> <span class="n">F_ri_flat</span><span class="p">(</span>
+                    <span class="n">t</span><span class="p">,</span> <span class="o">*</span><span class="n">dimAxes</span><span class="p">,</span> <span class="o">*</span><span class="n">states</span><span class="p">,</span> <span class="o">*</span><span class="n">driving</span><span class="p">)</span>
+
+                <span class="c1"># def f_r(*args):</span>
+                <span class="c1"># return F_ri(*args).real</span>
+                <span class="k">if</span> <span class="n">sym</span><span class="o">.</span><span class="n">is_real</span><span class="p">:</span>
+                    <span class="n">stateDepFD_ri</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">F_ri</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">sym_r</span><span class="p">,</span> <span class="n">sym_i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">complex_subsD</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span><span class="o">.</span><span class="n">as_real_imag</span><span class="p">()</span>
+                    <span class="n">stateDepFD_ri</span><span class="p">[</span><span class="n">sym_r</span><span class="p">]</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">F_ri</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">stateDepFD_ri</span><span class="p">[</span><span class="n">sym_i</span><span class="p">]</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n">F_ri</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+
+            <span class="n">stateDepFD</span> <span class="o">=</span> <span class="n">stateDepFD_ri</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">stateDepSubsD</span> <span class="o">=</span> <span class="n">subsD</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stateDepFD</span> <span class="o">=</span> <span class="n">stateDepFD</span>
+
+    <span class="k">def</span> <span class="nf">setup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">bTryToSimplify</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">bForceStateDimensions</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Do some of the expensive steps required before things can be integrated</span>
+
+<span class="sd">        Steps:</span>
+<span class="sd">            1. Decide which variables are necessary to integrate,</span>
+<span class="sd">            based on which ones change and which ones are desired as output</span>
+<span class="sd">            2. Optionally look at initial conditions to see if anything changes based on this.</span>
+<span class="sd">            3. Compile a dy_dt_fast() function to do the actual integration as fast as possible</span>
+<span class="sd">            4. Create a function to recreate the desired outputs based on the output of dy_dt_fast</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># DO SUBSTITUTIONS</span>
+        <span class="n">dy_dtD</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dy_dtD</span>
+        <span class="n">dy_dtD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">ex</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">stateDepSubsD</span><span class="p">)</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tDepSubsD</span><span class="p">)</span>
+                  <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">ex</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dy_dtD</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="k">if</span> <span class="n">bTryToSimplify</span><span class="p">:</span>
+            <span class="n">dy_dtD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">ex</span><span class="o">.</span><span class="n">simplify</span><span class="p">()</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">ex</span> <span class="ow">in</span> <span class="n">dy_dtD</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+        <span class="c1">##</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bDecompose_to_re_im</span><span class="p">:</span>
+            <span class="c1"># Do something to dy_dtD: this should all have been done already</span>
+            <span class="c1"># dy_dtD  = dy_dtD.copy()</span>
+            <span class="c1"># dy_dtD = self.split_RI(dy_dtD)</span>
+            <span class="k">pass</span>
+
+        <span class="c1"># NOTE: This may have some keys/values removed, if they&#39;re stationary.</span>
+        <span class="c1"># Maybe I should just print a warning about this for the moment, rather</span>
+        <span class="c1"># than trying to optimise automatically? YES, I SHOULD DO THAT FOR THE MOMENT.</span>
+        <span class="c1"># (At least until I work out if it&#39;s actually faster to optimise away)</span>
+        <span class="c1"># So for now: We can assume that all variables stay in the same order:</span>
+        <span class="c1"># t, *dims, *state, *driving</span>
+        <span class="c1">#to_simD = {sym:dy_dtD[sym] for sym in propagated_state_syms}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_dt_fast</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">make_d_dt_fast</span><span class="p">(</span><span class="n">dy_dtD</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tDepFD</span><span class="p">,</span>
+                                             <span class="bp">self</span><span class="o">.</span><span class="n">stateDepFD</span><span class="p">,</span> <span class="n">bForceStateDimensions</span><span class="o">=</span><span class="n">bForceStateDimensions</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_online_process_func</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_online_processing</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">revert</span><span class="p">(</span><span class="n">vals</span><span class="p">):</span>
+            <span class="sd">&quot;&quot;&quot; Add back in the initial conditions for stationary variables</span>
+
+<span class="sd">            This will only be useful once we start doing automatic variable removal.</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+        <span class="c1"># if list_diff(state_dep_syms+t_dep_syms, indep_syms) != []</span>
+        <span class="c1">#    raise ValueError(&quot;there are undefined symbols&quot;)</span>
+
+    <span class="k">def</span> <span class="nf">make_d_dt_fast</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">eqD</span><span class="p">,</span> <span class="n">t_dep_FD</span><span class="p">,</span> <span class="n">state_dep_FD</span><span class="p">,</span> <span class="n">bForceStateDimensions</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="n">state_dep_syms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state_dep_FD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">t_dep_syms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">t_dep_FD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">indep_syms</span> <span class="o">=</span> <span class="n">t_dep_syms</span> <span class="o">+</span> <span class="n">state_dep_syms</span>
+
+        <span class="n">state_dep_f</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">state_dep_FD</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="n">t_dep_f</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">t_dep_FD</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+        <span class="n">state_syms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">rhs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="n">input_syms</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">tSym</span><span class="p">]</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">dimSyms</span> <span class="o">+</span> \
+            <span class="n">state_syms</span> <span class="o">+</span> <span class="n">t_dep_syms</span> <span class="o">+</span> <span class="n">state_dep_syms</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eq</span> <span class="o">=</span> <span class="n">Munch</span><span class="p">(</span><span class="n">lhs</span><span class="o">=</span><span class="n">input_syms</span><span class="p">,</span> <span class="n">rhs</span><span class="o">=</span><span class="n">rhs</span><span class="p">)</span>
+        <span class="c1">#dummy = np.zeros( (*self.state_shape), dtype=&#39;c16&#39;).reshape(-1)</span>
+
+        <span class="c1"># Try to avoid closures here by using lots of default variobles</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">backend</span> <span class="o">==</span> <span class="s1">&#39;numpy&#39;</span><span class="p">:</span>
+            <span class="n">preShaped_dimAxes</span> <span class="o">=</span> <span class="p">[</span><span class="n">dAx</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">k</span> <span class="o">*</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">dAx</span><span class="o">.</span><span class="n">size</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">)</span> <span class="o">-</span> <span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+                                 <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">dAx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">)]</span>
+            <span class="n">d_dtF</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">lambdify</span><span class="p">(</span><span class="n">input_syms</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">modules</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">bForceStateDimensions</span><span class="p">:</span>
+                <span class="n">d_dtF0</span> <span class="o">=</span> <span class="n">d_dtF</span>
+                <span class="n">d_dtF</span> <span class="o">=</span> <span class="k">lambda</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">broadcast_to</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_shape</span><span class="p">)</span>
+                                       <span class="k">for</span> <span class="n">out</span> <span class="ow">in</span> <span class="n">d_dtF0</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)]</span>
+
+            <span class="k">def</span> <span class="nf">flatten_state</span><span class="p">(</span><span class="n">state</span><span class="p">):</span> <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="k">def</span> <span class="nf">unflatten_state</span><span class="p">(</span>
+                <span class="n">state</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">):</span> <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="n">shape</span><span class="p">)</span>
+
+            <span class="k">def</span> <span class="nf">dy_dt</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">cur_state_flat</span><span class="p">,</span>
+                      <span class="n">dimAxes</span><span class="o">=</span><span class="n">preShaped_dimAxes</span><span class="p">,</span>
+                      <span class="n">Npars</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">Npars</span><span class="p">,</span>
+                      <span class="n">state_shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">,</span>
+                      <span class="n">d_dt_prealloc</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span>
+                          <span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">default_dtype</span><span class="p">),</span>
+                      <span class="n">d_dtF</span><span class="o">=</span><span class="n">d_dtF</span><span class="p">,</span>
+                      <span class="n">flatten</span><span class="o">=</span><span class="n">flatten_state</span><span class="p">,</span> <span class="n">unflatten</span><span class="o">=</span><span class="n">unflatten_state</span><span class="p">,</span>
+                      <span class="n">state_dep_f</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">state_dep_f</span><span class="p">),</span> <span class="n">t_dep_f</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">t_dep_f</span><span class="p">)):</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="n">unflatten</span><span class="p">(</span><span class="n">cur_state_flat</span><span class="p">)</span>
+                <span class="n">driving_vals</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">t_dep_f</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">t</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                    <span class="c1"># pdb.set_trace()</span>
+                <span class="n">state_dep_vals</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">dimAxes</span><span class="p">,</span> <span class="n">state</span><span class="p">,</span> <span class="n">driving_vals</span><span class="p">)</span>
+                                  <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">state_dep_f</span><span class="p">]</span>
+                <span class="n">d_dt_prealloc</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">d_dtF</span><span class="p">(</span>
+                    <span class="n">t</span><span class="p">,</span> <span class="o">*</span><span class="n">dimAxes</span><span class="p">,</span> <span class="o">*</span><span class="n">state</span><span class="p">,</span> <span class="o">*</span><span class="n">driving_vals</span><span class="p">,</span> <span class="o">*</span><span class="n">state_dep_vals</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">flatten</span><span class="p">(</span><span class="n">d_dt_prealloc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c1"># Tensorflow it...</span>
+            <span class="n">preShaped_dimAxes</span> <span class="o">=</span> <span class="n">tf</span><span class="o">.</span><span class="n">constant</span><span class="p">([</span><span class="n">dAx</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="p">(</span><span class="n">k</span> <span class="o">*</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="p">[</span><span class="n">dAx</span><span class="o">.</span><span class="n">size</span><span class="p">]</span> <span class="o">+</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">)</span> <span class="o">-</span> <span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+                                             <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">dAx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dimAxes</span><span class="p">)],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tf</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+            <span class="n">d_dtF</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">lambdify</span><span class="p">(</span><span class="n">input_syms</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">modules</span><span class="o">=</span><span class="p">[</span>
+                                <span class="s2">&quot;tensorflow&quot;</span><span class="p">,</span> <span class="p">{</span><span class="s1">&#39;conjugate&#39;</span><span class="p">:</span> <span class="n">tf</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">conj</span><span class="p">}])</span>
+            <span class="n">d_dtF</span> <span class="o">=</span> <span class="n">tf</span><span class="o">.</span><span class="n">function</span><span class="p">(</span><span class="n">d_dtF</span><span class="p">,</span> <span class="n">experimental_compile</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+                                <span class="n">experimental_relax_shapes</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="k">def</span> <span class="nf">flatten_state</span><span class="p">(</span><span class="n">state</span><span class="p">):</span> <span class="k">return</span> <span class="n">tf</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+                <span class="n">state</span><span class="p">,</span> <span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>  <span class="c1"># .reshape(-1)</span>
+
+            <span class="k">def</span> <span class="nf">unflatten_state</span><span class="p">(</span>
+                <span class="n">state</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">):</span> <span class="k">return</span> <span class="n">tf</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">shape</span><span class="p">)</span>
+            <span class="c1"># def call_d_dtF(t, dimAxes, state, driving_vals, state_dep_vals):</span>
+            <span class="c1">#    return d_dtF(t, *dimAxes, *tf.unstack(state), *driving_vals, *state_dep_vals)</span>
+
+            <span class="nd">@tf</span><span class="o">.</span><span class="n">function</span><span class="p">(</span><span class="n">experimental_compile</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">experimental_relax_shapes</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">def</span> <span class="nf">dy_dt</span><span class="p">(</span>
+                <span class="n">t</span><span class="p">,</span>
+                <span class="n">cur_state_flat</span><span class="p">,</span>
+                <span class="n">dimAxes</span><span class="o">=</span><span class="n">preShaped_dimAxes</span><span class="p">,</span>
+                <span class="n">Npars</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">Npars</span><span class="p">,</span>
+                <span class="n">state_shape</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">),</span>
+                <span class="n">d_dtF</span><span class="o">=</span><span class="n">d_dtF</span><span class="p">,</span>
+                <span class="n">flatten</span><span class="o">=</span><span class="n">flatten_state</span><span class="p">,</span>
+                <span class="n">unflatten</span><span class="o">=</span><span class="n">unflatten_state</span><span class="p">,</span>
+                <span class="n">state_dep_f</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">state_dep_f</span><span class="p">),</span>
+                <span class="n">t_dep_f0</span><span class="o">=</span><span class="n">tf</span><span class="o">.</span><span class="n">function</span><span class="p">(</span>
+                    <span class="n">t_dep_f</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                    <span class="n">experimental_compile</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+                <span class="n">sim_size</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">sim_size</span><span class="p">,</span>
+                <span class="n">astate</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">dim_shape</span><span class="p">,</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;c16&#39;</span><span class="p">)):</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="n">tf</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">cur_state_flat</span><span class="p">,</span> <span class="n">state_shape</span><span class="p">)</span>
+                <span class="n">E</span> <span class="o">=</span> <span class="n">tf</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">t_dep_f0</span><span class="p">(</span><span class="n">t</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tf</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+
+                <span class="n">d_dt_prealloc</span> <span class="o">=</span> <span class="n">d_dtF</span><span class="p">(</span><span class="n">tf</span><span class="o">.</span><span class="n">cast</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tf</span><span class="o">.</span><span class="n">complex128</span><span class="p">),</span>
+                                      <span class="o">*</span><span class="n">tf</span><span class="o">.</span><span class="n">unstack</span><span class="p">(</span><span class="n">dimAxes</span><span class="p">),</span> <span class="o">*</span><span class="n">tf</span><span class="o">.</span><span class="n">unstack</span><span class="p">(</span><span class="n">state</span><span class="p">),</span> <span class="n">E</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">tf</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">d_dt_prealloc</span><span class="p">,</span> <span class="p">[</span><span class="n">sim_size</span><span class="p">])</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_d_dtF</span> <span class="o">=</span> <span class="n">d_dtF</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">d_dt_fast</span> <span class="o">=</span> <span class="n">dy_dt</span>
+        <span class="k">return</span> <span class="n">dy_dt</span>
+
+    <span class="k">def</span> <span class="nf">flatten_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>  <span class="c1"># reshape(self.Npars, -1)</span>
+
+    <span class="k">def</span> <span class="nf">unflatten_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flat_state</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">flat_state</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">state_shape</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">integrate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tSteps</span><span class="p">,</span> <span class="n">max_step_size</span><span class="o">=.</span><span class="mi">1</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-12</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">backend</span> <span class="o">==</span> <span class="s1">&#39;numpy&#39;</span><span class="p">:</span>
+            <span class="n">r</span> <span class="o">=</span> <span class="n">integrate</span><span class="o">.</span><span class="n">ode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_dt_fast</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">bDecompose_to_re_im</span><span class="p">:</span>
+                <span class="n">r</span><span class="o">.</span><span class="n">set_integrator</span><span class="p">(</span><span class="s1">&#39;vode&#39;</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;adams&#39;</span><span class="p">,</span> <span class="n">max_step</span><span class="o">=</span><span class="n">max_step_size</span><span class="p">,</span>
+                                 <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">)</span>  <span class="c1"># ,order=5) # or adams</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">r</span><span class="o">.</span><span class="n">set_integrator</span><span class="p">(</span><span class="s1">&#39;zvode&#39;</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s1">&#39;adams&#39;</span><span class="p">,</span> <span class="n">max_step</span><span class="o">=</span><span class="n">max_step_size</span><span class="p">,</span>
+                                 <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">)</span>  <span class="c1"># ,order=5) # or adams</span>
+            <span class="c1"># r.set_integrator(&#39;zvode&#39;, method=&#39;bdf&#39;,max_step=max_step_size, atol=1e-12, rtol=1e-6)#,order=5) # or adams</span>
+            <span class="c1">#par0=self._pack(self.params.initial.P, self.params.initial.w, self.params.initial.pop)</span>
+            <span class="n">r</span><span class="o">.</span><span class="n">set_initial_value</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">flatten_state</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">par0</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">integrateObject</span> <span class="o">=</span> <span class="n">r</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tSteps</span> <span class="o">=</span> <span class="n">tSteps</span> <span class="o">+</span> <span class="p">(</span><span class="n">tSteps</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">-</span> <span class="n">tSteps</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="c1"># Integrate</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clearOutput</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">tNext</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tSteps</span><span class="p">):</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">r</span><span class="o">.</span><span class="n">successful</span><span class="p">():</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">lastGoodInd</span> <span class="o">=</span> <span class="n">k</span> <span class="o">-</span> <span class="mi">1</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Integration failed at sim time </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">tNext</span><span class="p">))</span>
+                    <span class="k">break</span>
+                <span class="n">cur</span> <span class="o">=</span> <span class="n">r</span><span class="o">.</span><span class="n">integrate</span><span class="p">(</span><span class="n">tNext</span><span class="p">)</span>
+                <span class="c1"># probably reshaping, calculating fields etc</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_online_process_func</span><span class="p">(</span><span class="n">cur</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">outputL</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">backend</span> <span class="o">==</span> <span class="s1">&#39;tensorflow&#39;</span><span class="p">:</span>
+            <span class="n">y_init</span> <span class="o">=</span> <span class="n">tf</span><span class="o">.</span><span class="n">constant</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">flatten_state</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">par0</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">tf</span><span class="o">.</span><span class="n">complex128</span><span class="p">)</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">tfp</span><span class="o">.</span><span class="n">math</span><span class="o">.</span><span class="n">ode</span><span class="o">.</span><span class="n">DormandPrince</span><span class="p">()</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">d_dt_fast</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">y_init</span><span class="p">,</span>
+                                                     <span class="n">solution_times</span><span class="o">=</span><span class="n">tSteps</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">res</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Unrecognised backend:&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">backend</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_pack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Convert from output format into internal sim format</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">flatten_state</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_unpack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sim_state</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Convert from internal sim format to output format</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">unflatten_state</span><span class="p">(</span><span class="n">sim_state</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">clearOutput</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">def</span> <span class="nf">set_online_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">f</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span> <span class="o">=</span> <span class="p">[]</span>
+
+            <span class="k">def</span> <span class="nf">f2</span><span class="p">(</span><span class="n">sim_state</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_unpack</span><span class="p">(</span><span class="n">sim_state</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">f2</span><span class="p">(</span><span class="n">sim_state</span><span class="p">):</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unpack</span><span class="p">(</span><span class="n">sim_state</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_online_process_func</span> <span class="o">=</span> <span class="n">f2</span></div>
+
+
+<span class="c1"># THIS DOESN&quot;T BELONG HERE</span>
+<span class="c1"># def get_pol_func(Hint, lineShape):</span>
+<span class="k">def</span> <span class="nf">calcE_FWonly_SD</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">EinFwNow</span><span class="p">,</span> <span class="n">lineShape</span><span class="p">,</span> <span class="n">calc_polF</span><span class="p">,</span> <span class="n">Ncoh</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Just the simplest case, the moving-frame approx.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">coh</span><span class="p">,</span> <span class="n">diag</span> <span class="o">=</span> <span class="o">...</span>
+    <span class="n">pol</span> <span class="o">=</span> <span class="p">(</span><span class="n">calc_polF</span><span class="p">(</span><span class="o">*</span><span class="n">coh</span><span class="p">)</span> <span class="o">*</span> <span class="n">lineShape</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">Etot</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">pol</span><span class="p">)</span>  <span class="c1"># * excArrs.fwMode.conj())</span>
+    <span class="k">return</span> <span class="n">Etot</span>
+
+<span class="c1"># FOR REFERENCE ONLY</span>
+
+
+<span class="c1"># Is t an independent symbol? Only if it appears explicitly I guess</span>
+<span class="k">def</span> <span class="nf">get_dydt_from_dict</span><span class="p">(</span><span class="n">tSym</span><span class="p">,</span> <span class="n">eqD</span><span class="p">,</span> <span class="n">indepSubD</span><span class="o">=</span><span class="p">{},</span> <span class="n">bIncludeT</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">modules</span><span class="o">=</span><span class="s2">&quot;numpy&quot;</span><span class="p">,</span> <span class="n">bSimplifyRHS</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Take a dictionary of symbol:expresson pairs, and return a function for fast numerical analysis,</span>
+<span class="sd">    with the required input parameters also returned</span>
+
+<span class="sd">    indepSubD should have form e.g. {E: cos(w*t), w:1, E2: lambda t: 2*t}. That is, the value can be a</span>
+<span class="sd">    sympy expression or a python function.</span>
+
+<span class="sd">    Variables used:</span>
+<span class="sd">        depSyms: Dependent symbols. These correspond to the keys of the input dictionary</span>
+<span class="sd">        indepSyms: Independent symbols. These are values that aren&#39;t propagated. They&#39;re either input at each</span>
+<span class="sd">            time, or they&#39;re given in functional form in indepSubD to be calculated internally.</span>
+
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># DO SUBSTITUTION FROM indepSyms first</span>
+    <span class="k">if</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">indepFuncD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">indepSubD</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+                      <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">indepSubD</span><span class="o">.</span><span class="n">items</span><span class="p">())</span> <span class="k">if</span> <span class="n">callable</span><span class="p">(</span><span class="n">expr</span><span class="p">)}</span>
+        <span class="n">subsD</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">sm</span><span class="o">.</span><span class="n">sympify</span><span class="p">(</span><span class="n">indepSubD</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">sym</span><span class="p">))</span>
+                 <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">indepSubD</span><span class="o">.</span><span class="n">items</span><span class="p">())}</span>
+
+        <span class="c1"># if t not in freeSymbols</span>
+        <span class="c1"># Function to evaluate elements without a symbollic implementation:</span>
+
+        <span class="k">def</span> <span class="nf">curIndepVarsF</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">f</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">indepFuncD</span><span class="o">.</span><span class="n">values</span><span class="p">()]</span>
+        <span class="c1">######################</span>
+
+    <span class="c1"># Get rid of redundant, i.e. stationary variables</span>
+    <span class="c1"># {key:val for key,val in list(eqD.items()) if val!=0 } #Non-stationary equations</span>
+    <span class="n">eqD_1</span> <span class="o">=</span> <span class="n">eqD</span>
+    <span class="n">eqD_1</span> <span class="o">=</span> <span class="p">{</span><span class="n">key</span><span class="p">:</span> <span class="n">val</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">subsD</span><span class="p">)</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">eqD_1</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+    <span class="n">stationarySyms</span> <span class="o">=</span> <span class="p">[</span><span class="n">key</span> <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">eqD_1</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">val</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">depSymbs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD_1</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>  <span class="c1"># &gt;..  #LHS</span>
+    <span class="n">rhs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">eqD_1</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">bSimplifyRHS</span><span class="p">:</span>
+        <span class="n">rhs</span> <span class="o">=</span> <span class="p">[</span><span class="n">sm</span><span class="o">.</span><span class="n">simplify</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">rhs</span><span class="p">]</span>
+    <span class="n">freeSyms0</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">rhs</span><span class="p">)</span><span class="o">.</span><span class="n">free_symbols</span>
+    <span class="n">stateSyms</span> <span class="o">=</span> <span class="n">depSymbs</span>
+    <span class="c1">#stateSyms = [sym for sym in depSymbs if sym in freeSyms0 ]</span>
+    <span class="n">intIndepSyms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">indepFuncD</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="n">extIndepSyms</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">sym</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">freeSyms0</span> <span class="k">if</span> <span class="n">sym</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">stateSyms</span> <span class="ow">and</span> <span class="n">sym</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">intIndepSyms</span> <span class="ow">and</span> <span class="n">sym</span> <span class="o">!=</span> <span class="n">tSym</span><span class="p">]</span>
+    <span class="n">lamInputSyms</span> <span class="o">=</span> <span class="p">[</span><span class="n">tSym</span><span class="p">]</span> <span class="o">+</span> <span class="n">intIndepSyms</span> <span class="o">+</span> <span class="n">extIndepSyms</span> <span class="o">+</span> <span class="n">stateSyms</span>
+    <span class="c1"># freeSyms = oset( depSymbs + list(sm.Matrix(rhs.free_symbols)) ) # want to keep order here</span>
+    <span class="c1"># Should now be a list of [dep elements, independent elements ]</span>
+    <span class="c1"># actually, ideally we&#39;d put &#39;t&#39; first if it exists.</span>
+
+    <span class="c1"># could also split into real and ind imaginary parts</span>
+    <span class="n">d_dtF</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">lambdify</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">lamInputSyms</span><span class="p">),</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">rhs</span><span class="p">),</span> <span class="n">modules</span><span class="o">=</span><span class="n">modules</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">dy_dt</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">curState</span><span class="p">,</span> <span class="n">indepInputs</span><span class="o">=</span><span class="p">[]):</span>
+        <span class="c1"># the current value of t might be included in here?</span>
+        <span class="n">intIndepVals</span> <span class="o">=</span> <span class="n">curIndepVarsF</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">d_dtF</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="o">*</span><span class="n">intIndepVals</span><span class="p">,</span> <span class="o">*</span><span class="n">indepInputs</span><span class="p">,</span> <span class="o">*</span><span class="n">curState</span><span class="p">)</span>
+
+    <span class="c1"># extInputSyms = stateSyms +</span>
+    <span class="k">return</span> <span class="n">dy_dt</span><span class="p">,</span> <span class="n">stateSyms</span><span class="p">,</span> <span class="n">extIndepSyms</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">test_ODESolver</span><span class="p">():</span>
+        <span class="n">p1S</span><span class="p">,</span> <span class="n">p2S</span><span class="p">,</span> <span class="n">zS</span><span class="p">,</span> <span class="n">tS</span><span class="p">,</span> <span class="n">F</span><span class="p">,</span> <span class="n">F2</span><span class="p">,</span> <span class="n">G</span><span class="p">,</span> <span class="n">DeltaS</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span>
+            <span class="s1">&#39;x, y, z, t, F, F2, G Delta&#39;</span><span class="p">)</span>
+        <span class="n">d_dtD</span> <span class="o">=</span> <span class="p">{</span><span class="n">p1S</span><span class="p">:</span> <span class="n">p1S</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">p2S</span><span class="p">:</span> <span class="n">zS</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">F2</span><span class="p">}</span>
+
+        <span class="n">ode_s</span> <span class="o">=</span> <span class="n">ODESolver</span><span class="p">(</span><span class="n">d_dtD</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="n">zS</span><span class="p">,</span> <span class="n">DeltaS</span><span class="p">])</span>
+        <span class="n">ode_s</span><span class="o">.</span><span class="n">setIndepFuncs</span><span class="p">(</span><span class="n">tDepF</span><span class="o">=</span><span class="p">{</span><span class="n">F</span><span class="p">:</span> <span class="n">sm</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="mi">10</span> <span class="o">*</span> <span class="n">t</span><span class="p">),</span> <span class="n">F2</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="o">**</span><span class="mi">2</span><span class="p">},</span>
+                            <span class="n">state_dep_funcs</span><span class="o">=</span><span class="p">{</span><span class="n">G</span><span class="p">:</span> <span class="k">lambda</span> <span class="n">p1</span><span class="p">,</span> <span class="n">p2</span><span class="p">:</span> <span class="n">DeltaS</span> <span class="o">*</span> <span class="p">(</span><span class="n">p1</span><span class="o">**</span><span class="mi">2</span> <span class="o">+</span> <span class="n">p2</span><span class="p">)})</span>
+        <span class="n">ode_s</span><span class="o">.</span><span class="n">set_initial_conditions</span><span class="p">({</span><span class="n">p1S</span><span class="p">:</span> <span class="n">arange</span><span class="p">(</span><span class="mi">15</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>
+                                      <span class="n">p2S</span><span class="p">:</span> <span class="n">arange</span><span class="p">(</span><span class="mi">15</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">)})</span>
+        <span class="n">ode_s</span><span class="o">.</span><span class="n">prepare_to_ingegrate</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">ode_s</span>
+</pre></div>
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        
+        &copy; Copyright 2020, Morgan Hedges
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

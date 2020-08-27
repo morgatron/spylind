@@ -1,0 +1,632 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>spylind.spylind &mdash; Spylind 0.post6+ge359cad documentation</title>
+  
+
+  
+  <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+  <link rel="stylesheet" href="../../_static/copybutton.css" type="text/css" />
+
+  
+  
+  
+  
+
+  
+  <!--[if lt IE 9]>
+    <script src="../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+        <script src="../../_static/jquery.js"></script>
+        <script src="../../_static/underscore.js"></script>
+        <script src="../../_static/doctools.js"></script>
+        <script src="../../_static/language_data.js"></script>
+        <script src="../../_static/clipboard.min.js"></script>
+        <script src="../../_static/copybutton.js"></script>
+    
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+
+    
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../../index.html" class="icon icon-home" alt="Documentation Home"> Spylind
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.post6+ge359cad
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Usage</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../release-history.html">Release History</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../todo.html">Near-term planned features/todos</a></li>
+</ul>
+
+            
+          
+        </div>
+        
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">Spylind</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../../index.html" class="icon icon-home"></a> &raquo;</li>
+        
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+        
+      <li>spylind.spylind</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <h1>Source code for spylind.spylind</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">numpy</span> <span class="kn">import</span> <span class="n">pi</span>
+<span class="kn">import</span> <span class="nn">pdb</span>
+<span class="kn">from</span> <span class="nn">sympy.printing</span> <span class="kn">import</span> <span class="n">sstr</span>
+<span class="kn">import</span> <span class="nn">qutip</span> <span class="k">as</span> <span class="nn">q</span>
+<span class="kn">import</span> <span class="nn">sympy</span> <span class="k">as</span> <span class="nn">sm</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">collections.abc</span> <span class="kn">import</span> <span class="n">Iterable</span>   <span class="c1"># drop `.abc` with Python 2.7 or lower</span>
+
+
+<span class="k">def</span> <span class="nf">isiterable</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">toDense</span><span class="p">(</span><span class="n">qobj</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">qobj</span><span class="p">)</span> <span class="ow">is</span> <span class="n">q</span><span class="o">.</span><span class="n">Qobj</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">qobj</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">todense</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">qobj</span>
+
+<span class="k">def</span> <span class="nf">SpreSmSp</span><span class="p">(</span><span class="n">op</span><span class="p">):</span>
+    <span class="n">opN</span><span class="o">=</span><span class="n">op</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">opSM</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">op</span><span class="p">)</span>
+    <span class="c1">#This is essentially just a sparse block-matrix</span>
+    <span class="n">SpreS</span><span class="o">=</span><span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">opN</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">opN</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="p">{(</span><span class="n">opN</span><span class="o">*</span><span class="n">k</span><span class="p">,</span><span class="n">opN</span><span class="o">*</span><span class="n">k</span><span class="p">):</span><span class="n">opSM</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">opN</span><span class="p">)</span> <span class="p">})</span>
+    <span class="k">return</span> <span class="n">SpreS</span>
+
+<span class="k">def</span> <span class="nf">SpostSmSp</span><span class="p">(</span><span class="n">op</span><span class="p">):</span>
+    <span class="n">N</span><span class="o">=</span><span class="n">op</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">dct</span> <span class="o">=</span> <span class="p">{(</span><span class="n">N</span><span class="o">*</span><span class="n">l</span><span class="p">,</span><span class="n">N</span><span class="o">*</span><span class="n">k</span> <span class="p">):</span>
+           <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">N</span><span class="p">,</span><span class="n">N</span><span class="p">,</span> <span class="p">{(</span><span class="n">i</span><span class="p">,</span><span class="n">i</span><span class="p">):</span><span class="n">op</span><span class="p">[</span><span class="n">k</span><span class="p">,</span><span class="n">l</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">)}</span> <span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">l</span> <span class="ow">in</span> <span class="n">product</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">),</span> <span class="n">repeat</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="p">}</span>
+    <span class="n">SpostS</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">N</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span><span class="n">N</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">dct</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">SpostS</span>
+
+<span class="k">def</span> <span class="nf">liouvillianS</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="n">cOpL</span><span class="o">=</span><span class="p">[]):</span>
+    <span class="k">if</span> <span class="n">op</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="n">j</span><span class="o">*</span><span class="p">(</span><span class="n">SpreSmSp</span><span class="p">(</span><span class="n">op</span><span class="p">)</span> <span class="o">-</span> <span class="n">SpostSmSp</span><span class="p">((</span><span class="n">op</span><span class="p">)))</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">N</span><span class="o">=</span><span class="n">cOpL</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="c1">#L = np.matrix(np.zeros((N**2,N**2), dtype=&#39;object&#39;))</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">N</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">N</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="p">{})</span>
+    <span class="k">for</span> <span class="n">cOp</span> <span class="ow">in</span> <span class="n">cOpL</span><span class="p">:</span>
+        <span class="c1">#cOp = np.matrix(cOp)</span>
+        <span class="n">cdc</span> <span class="o">=</span> <span class="n">cOp</span><span class="o">.</span><span class="n">H</span><span class="o">*</span><span class="n">cOp</span>
+        <span class="c1">#cdc = herm_c(cOp)*cOp</span>
+        <span class="n">L</span> <span class="o">+=</span> <span class="n">SpreSmSp</span><span class="p">(</span><span class="n">cOp</span><span class="p">)</span><span class="o">*</span><span class="n">SpostSmSp</span><span class="p">(</span><span class="n">cOp</span><span class="o">.</span><span class="n">H</span><span class="p">)</span> <span class="o">-</span>\
+            <span class="p">(</span><span class="n">SpreSmSp</span><span class="p">(</span><span class="n">cdc</span><span class="p">)</span> <span class="o">+</span><span class="n">SpostSmSp</span><span class="p">(</span><span class="n">cdc</span><span class="p">))</span><span class="o">/</span><span class="mi">2</span>
+    <span class="k">return</span> <span class="n">L</span>
+
+<div class="viewcode-block" id="seperate_DM_equation"><a class="viewcode-back" href="../../usage.html#spylind.spylind.seperate_DM_equation">[docs]</a><span class="k">def</span> <span class="nf">seperate_DM_equation</span><span class="p">(</span><span class="n">eq</span><span class="p">):</span>
+    <span class="n">cohL</span> <span class="o">=</span> <span class="p">(</span><span class="n">Coh</span><span class="p">(</span><span class="n">eq</span><span class="o">.</span><span class="n">lhs</span><span class="p">))</span>
+    <span class="n">diagL</span> <span class="o">=</span> <span class="p">(</span><span class="n">Dia</span><span class="p">(</span><span class="n">eq</span><span class="o">.</span><span class="n">lhs</span><span class="p">))</span>
+    <span class="n">coh_dtL</span> <span class="o">=</span> <span class="p">(</span><span class="n">Coh</span><span class="p">(</span><span class="n">eq</span><span class="o">.</span><span class="n">rhs</span><span class="p">))</span>
+    <span class="n">diag_dtL</span> <span class="o">=</span> <span class="p">(</span><span class="n">Dia</span><span class="p">(</span><span class="n">eq</span><span class="o">.</span><span class="n">rhs</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">diagL</span> <span class="o">+</span> <span class="n">cohL</span><span class="p">,</span> <span class="n">diag_dtL</span> <span class="o">+</span> <span class="n">coh_dtL</span></div>
+
+
+<span class="k">def</span> <span class="nf">convMat</span><span class="p">(</span><span class="n">M</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Convert a pure symbollic matrix into a matrix of symbols (I think?)&quot;&quot;&quot;</span>
+    <span class="n">el</span> <span class="o">=</span> <span class="n">M</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+    <span class="n">st</span> <span class="o">=</span> <span class="n">sstr</span><span class="p">(</span><span class="n">el</span><span class="p">)</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">st</span><span class="p">[:</span><span class="n">st</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s1">&#39;[&#39;</span><span class="p">)]</span>
+    <span class="n">symArr</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;</span><span class="si">{0}</span><span class="s1">:</span><span class="si">{1}</span><span class="s1">(:</span><span class="si">{2}</span><span class="s1">)&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="o">*</span><span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+    <span class="n">outputM</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">subs</span><span class="p">({</span><span class="n">elA</span><span class="p">:</span> <span class="n">elB</span> <span class="k">for</span> <span class="n">elA</span><span class="p">,</span> <span class="n">elB</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">M</span><span class="p">),</span> <span class="nb">list</span><span class="p">(</span><span class="n">symArr</span><span class="p">))})</span>
+    <span class="k">return</span> <span class="n">outputM</span>
+
+
+<span class="k">def</span> <span class="nf">makeHermS</span><span class="p">(</span><span class="n">M</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Make a matrix of symbols concretely Hermition by replacing lower</span>
+<span class="sd">    diagonal elements with the complex conjugate of the upper diagonals.&quot;&quot;&quot;</span>
+    <span class="n">Nstates</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">rIL</span><span class="p">,</span> <span class="n">cIL</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tril_indices</span><span class="p">(</span><span class="n">Nstates</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">rIU</span><span class="p">,</span> <span class="n">cIU</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">triu_indices</span><span class="p">(</span><span class="n">Nstates</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">M</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">subs</span><span class="p">({</span><span class="n">M</span><span class="p">[</span><span class="n">rl</span><span class="p">,</span> <span class="n">cl</span><span class="p">]:</span> <span class="n">sm</span><span class="o">.</span><span class="n">conjugate</span><span class="p">(</span><span class="n">M</span><span class="p">[</span><span class="n">cl</span><span class="p">,</span> <span class="n">rl</span><span class="p">])</span> <span class="k">for</span> <span class="n">ru</span><span class="p">,</span> <span class="n">cu</span><span class="p">,</span> <span class="n">rl</span><span class="p">,</span> <span class="n">cl</span>
+                <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">rIU</span><span class="p">,</span> <span class="n">cIU</span><span class="p">,</span> <span class="n">rIL</span><span class="p">,</span> <span class="n">cIL</span><span class="p">)})</span>
+    <span class="k">return</span> <span class="n">M</span>
+
+
+<span class="k">def</span> <span class="nf">makeHerm</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Purely numerical version of the above.&quot;&quot;&quot;</span>
+    <span class="n">dia</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diagonal</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">m</span> <span class="o">+</span> <span class="n">m</span><span class="o">.</span><span class="n">conjugate</span><span class="p">()</span><span class="o">.</span><span class="n">T</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">dia</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">getRhoLabels</span><span class="p">(</span><span class="n">labels</span><span class="p">):</span>
+    <span class="n">labs</span> <span class="o">=</span> <span class="p">[[</span><span class="s1">&#39;</span><span class="si">{}{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">lab1</span><span class="p">,</span> <span class="n">lab2</span><span class="p">)</span> <span class="k">for</span> <span class="n">lab1</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">]</span> <span class="k">for</span> <span class="n">lab2</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">labs</span>
+
+
+<span class="k">def</span> <span class="nf">getTensoredLabels</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="n">labels_list_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+    <span class="n">labels_cur</span> <span class="o">=</span> <span class="n">labels_list_list</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+    <span class="n">mat_labels_cur</span> <span class="o">=</span> <span class="n">getRhoLabels</span><span class="p">(</span><span class="n">labels_cur</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">labels_list_list</span><span class="p">:</span>
+        <span class="n">mat_labels_next</span> <span class="o">=</span> <span class="n">getRhoLabels</span><span class="p">(</span><span class="n">labels_list_list</span><span class="o">.</span><span class="n">pop</span><span class="p">())</span>
+        <span class="n">mat_labels_cur</span> <span class="o">=</span> <span class="n">_getTensoredLabels</span><span class="p">(</span><span class="n">mat_labels_next</span><span class="p">,</span> <span class="n">mat_labels_cur</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">mat_labels_cur</span>
+
+
+<span class="k">def</span> <span class="nf">_getTensoredLabels</span><span class="p">(</span><span class="n">mat_labels1</span><span class="p">,</span> <span class="n">mat_labels2</span><span class="p">):</span>
+    <span class="n">N1</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">mat_labels1</span><span class="p">)</span>
+    <span class="n">N2</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">mat_labels2</span><span class="p">)</span>
+    <span class="n">labelM</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">N1</span> <span class="o">*</span> <span class="n">N2</span><span class="p">,</span> <span class="n">N1</span> <span class="o">*</span> <span class="n">N2</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;O&#39;</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i1</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N1</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">k1</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N1</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">i2</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N2</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">k2</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">N2</span><span class="p">):</span>
+                    <span class="n">labelM</span><span class="p">[</span><span class="n">i1</span> <span class="o">*</span> <span class="n">N2</span> <span class="o">+</span> <span class="n">i2</span><span class="p">,</span> <span class="n">k1</span> <span class="o">*</span> <span class="n">N2</span> <span class="o">+</span> <span class="n">k2</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="si">{}</span><span class="s1">|</span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">mat_labels1</span><span class="p">[</span><span class="n">i1</span><span class="p">][</span><span class="n">k1</span><span class="p">],</span> <span class="n">mat_labels2</span><span class="p">[</span><span class="n">i2</span><span class="p">][</span><span class="n">k2</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="n">labelM</span>
+
+
+<span class="k">def</span> <span class="nf">getTensoredRhoS</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;e.g getTensoredRhoS(&#39;123&#39;, &#39;abc&#39;) will return a DM with symbols labelled</span>
+<span class="sd">    according to a space with levels labelled &#39;1&#39;, &#39;2&#39;, and &#39;3&#39; tensored with a</span>
+<span class="sd">    space with levels labelled &#39;a&#39;, &#39;b&#39;, &#39;c&#39;.&quot;&quot;&quot;</span>
+    <span class="n">st</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="se">\\</span><span class="s1">rho_{{</span><span class="si">{}</span><span class="s1">}}&#39;</span>
+    <span class="n">labsMat</span> <span class="o">=</span> <span class="n">getTensoredLabels</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+    <span class="n">rhoM</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">labsMat</span><span class="p">)</span>
+    <span class="n">N</span> <span class="o">=</span> <span class="n">rhoM</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="o">&lt;</span> <span class="n">i</span><span class="p">:</span>
+                <span class="n">sym</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">conjugate</span><span class="p">(</span><span class="n">rhoM</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">i</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">sym_st</span> <span class="o">=</span> <span class="n">st</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">labsMat</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">k</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">k</span> <span class="o">==</span> <span class="n">i</span><span class="p">:</span>
+                    <span class="n">sym</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="n">sym_st</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">sym</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="n">sym_st</span><span class="p">,</span> <span class="nb">complex</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="n">rhoM</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">sym</span>
+    <span class="k">return</span> <span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">rhoM</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">getRhoS</span><span class="p">(</span><span class="n">Nstates</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">symName</span><span class="p">(</span><span class="n">i1</span><span class="p">,</span> <span class="n">i2</span><span class="p">):</span> <span class="k">return</span> <span class="s1">&#39;</span><span class="se">\\</span><span class="s1">rho_{{</span><span class="si">{0}</span><span class="s1">|</span><span class="si">{1}</span><span class="s1">}}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">i1</span><span class="p">,</span> <span class="n">i2</span><span class="p">)</span>
+    <span class="n">M</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">Nstates</span><span class="p">,</span> <span class="n">Nstates</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;O&#39;</span><span class="p">)</span>
+    <span class="n">DI</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diag_indices</span><span class="p">(</span><span class="n">Nstates</span><span class="p">)</span>
+    <span class="n">UI</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">triu_indices</span><span class="p">(</span><span class="n">Nstates</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">inds</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">DI</span><span class="p">):</span>
+        <span class="n">M</span><span class="p">[</span><span class="n">inds</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">inds</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="n">symName</span><span class="p">(</span><span class="o">*</span><span class="n">inds</span><span class="p">),</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">inds</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="n">UI</span><span class="p">):</span>
+        <span class="n">sym</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="n">symName</span><span class="p">(</span><span class="o">*</span><span class="n">inds</span><span class="p">),</span> <span class="nb">complex</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">M</span><span class="p">[</span><span class="n">inds</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">inds</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span> <span class="o">=</span> <span class="n">sym</span>
+        <span class="n">M</span><span class="p">[</span><span class="n">inds</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">inds</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">conjugate</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">M</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">constructBlochHamiltonian</span><span class="p">(</span><span class="n">gsEnergies</span><span class="p">,</span> <span class="n">esEnergies</span><span class="p">,</span> <span class="n">osc_strengths</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">T1_opt</span><span class="o">=-</span>
+                              <span class="mi">1</span><span class="p">,</span> <span class="n">br_ratio</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">decay_rates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">coh_decay_rates</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Construct a parameterised Hamiltonian and collapse operators for driven</span>
+<span class="sd">    transitions between a ground state manifold with energy splittings</span>
+<span class="sd">    @gsEnergies and excited state splittings. Returns in the format needed by</span>
+<span class="sd">    the setAtomParameters function (H0, H1, Hlst)</span>
+
+<span class="sd">    @esEnergies. Ground and excited states are coupled by a Hamiltonian H1 according to the values</span>
+<span class="sd">    Args:</span>
+<span class="sd">        osc_strengths: A detuning between ground and excited states is given y the hamiltonian H2.</span>
+<span class="sd">        T1_opt: Decays from the excited state manifold to ground occur at the rate 1/T1_opt.</span>
+<span class="sd">        br_ratio: Ratios for second order transitions to make osc_strengths (if not given explicity)</span>
+
+<span class="sd">    Returns: H0, (Esym,H1), Hlst, c_opL</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">Ngs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">gsEnergies</span><span class="p">)</span>
+    <span class="n">Nes</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">esEnergies</span><span class="p">)</span>
+    <span class="n">Nstates</span> <span class="o">=</span> <span class="n">Ngs</span> <span class="o">+</span> <span class="n">Nes</span>
+    <span class="n">gsL</span> <span class="o">=</span> <span class="p">[</span><span class="n">q</span><span class="o">.</span><span class="n">basis</span><span class="p">(</span><span class="n">Nstates</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Ngs</span><span class="p">)]</span>
+    <span class="n">esL</span> <span class="o">=</span> <span class="p">[</span><span class="n">q</span><span class="o">.</span><span class="n">basis</span><span class="p">(</span><span class="n">Nstates</span><span class="p">,</span> <span class="n">Ngs</span> <span class="o">+</span> <span class="n">n</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Nes</span><span class="p">)]</span>
+    <span class="n">H1</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">Nbrs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">br_ratio</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+        <span class="n">br_ratio</span> <span class="o">=</span> <span class="p">[</span><span class="n">k</span> <span class="o">*</span> <span class="n">br_ratio</span><span class="o">**</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">)]</span>
+        <span class="n">Nbrs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">br_ratio</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">iterable</span><span class="p">(</span><span class="n">osc_strengths</span><span class="p">):</span>
+        <span class="n">strngth</span> <span class="o">=</span> <span class="n">osc_strengths</span>
+        <span class="n">osc_strengths</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">Ngs</span><span class="p">,</span> <span class="n">Nes</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;O&#39;</span><span class="p">)</span>
+        <span class="n">osc_strengths</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">diag_indices</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">Ngs</span><span class="p">,</span> <span class="n">Nes</span><span class="p">))]</span> <span class="o">=</span> <span class="mf">1.</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Ngs</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">Nes</span><span class="p">):</span>
+                <span class="n">df</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="n">i</span><span class="p">))</span>
+                <span class="k">if</span> <span class="n">df</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># Like-to-like transition</span>
+                    <span class="n">osc_strengths</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">strngth</span>
+                <span class="k">if</span> <span class="n">df</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">br_ratio</span><span class="p">)</span> <span class="ow">and</span> <span class="n">df</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># Second order or further...</span>
+                    <span class="n">osc_strengths</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">strngth</span> <span class="o">*</span> <span class="n">br_ratio</span><span class="p">[</span><span class="n">df</span><span class="p">]</span>
+    <span class="c1"># --------------------------------------------------------</span>
+    <span class="c1"># Add field interaction operators (oscillator strengths)</span>
+    <span class="n">Esym</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;Ef&#39;</span><span class="p">,</span> <span class="nb">complex</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">es</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">esL</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">gs</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">gsL</span><span class="p">):</span>
+            <span class="n">term</span> <span class="o">=</span> <span class="n">Esym</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">es</span> <span class="o">*</span> <span class="n">gs</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span> <span class="o">+</span> <span class="n">sm</span><span class="o">.</span><span class="n">conjugate</span><span class="p">(</span><span class="n">Esym</span><span class="p">)</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">gs</span> <span class="o">*</span> <span class="n">es</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+            <span class="k">if</span> <span class="n">H1</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">H1</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">osc_strengths</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">k</span><span class="p">])</span> <span class="o">*</span> <span class="n">term</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">H1</span> <span class="o">+=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">osc_strengths</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">k</span><span class="p">])</span> <span class="o">*</span> <span class="n">term</span>
+
+    <span class="c1"># ----------------------------------------------</span>
+    <span class="c1"># H0 Evolution</span>
+    <span class="n">H0</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">zero_ket</span><span class="p">(</span><span class="n">Nstates</span><span class="p">)</span> <span class="o">*</span> <span class="n">q</span><span class="o">.</span><span class="n">zero_ket</span><span class="p">(</span><span class="n">Nstates</span><span class="p">)</span><span class="o">.</span><span class="n">dag</span><span class="p">()</span>
+    <span class="n">Hdet</span> <span class="o">=</span> <span class="n">H0</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">H0</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">H0</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">freq</span><span class="p">,</span> <span class="n">ket</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">gsEnergies</span><span class="p">,</span> <span class="n">gsL</span><span class="p">):</span>
+        <span class="n">H0</span> <span class="o">+=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">pi</span> <span class="o">*</span> <span class="o">-</span><span class="n">freq</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">ket</span> <span class="o">*</span> <span class="n">ket</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">freq</span><span class="p">,</span> <span class="n">ket</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">esEnergies</span><span class="p">,</span> <span class="n">esL</span><span class="p">):</span>
+        <span class="n">H0</span> <span class="o">+=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">pi</span> <span class="o">*</span> <span class="o">-</span><span class="n">freq</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">ket</span> <span class="o">*</span> <span class="n">ket</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+
+    <span class="n">Hdet</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qdiags</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">Ngs</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">Nes</span><span class="p">)]),</span> <span class="n">offsets</span><span class="o">=</span><span class="mi">0</span><span class="p">))</span>
+
+    <span class="c1"># -------------------------------------------------</span>
+    <span class="c1"># Decay. If decay_rate is not given, assume it scales</span>
+    <span class="c1">#    with oscillator strength. Otherwise, T1_opt does nothing</span>
+    <span class="n">gamma</span> <span class="o">=</span> <span class="mf">1.</span> <span class="o">/</span> <span class="n">T1_opt</span>
+    <span class="k">if</span> <span class="n">decay_rates</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">decay_rates</span> <span class="o">=</span> <span class="p">[[</span><span class="n">gamma</span> <span class="o">*</span> <span class="n">osc_strengths</span><span class="p">[</span><span class="n">l</span><span class="p">][</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">esL</span><span class="p">))]</span>
+                       <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gsL</span><span class="p">))]</span>
+
+    <span class="n">c_opL</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">es</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">esL</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">gs</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">gsL</span><span class="p">):</span>
+            <span class="c1">#c_opL.append(sm.sqrt(gamma*osc_strengths[l][k]) * toDense(gs * es.dag()))</span>
+            <span class="n">c_opL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">decay_rates</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">k</span><span class="p">])</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">gs</span> <span class="o">*</span> <span class="n">es</span><span class="o">.</span><span class="n">dag</span><span class="p">()))</span>
+
+    <span class="c1"># T2s</span>
+    <span class="k">if</span> <span class="n">coh_decay_rates</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">isiterable</span><span class="p">(</span><span class="n">coh_decay_rates</span><span class="p">):</span>
+            <span class="n">rate</span> <span class="o">=</span> <span class="n">coh_decay_rates</span>
+            <span class="n">coh_decay_rates</span> <span class="o">=</span> <span class="p">[[</span><span class="n">rate</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">esL</span><span class="p">))]</span>
+                               <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gsL</span><span class="p">))]</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">es</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">esL</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">gs</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">gsL</span><span class="p">):</span>
+                <span class="n">c_opL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">coh_decay_rates</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">k</span><span class="p">])</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="mi">1</span><span class="n">j</span> <span class="o">*</span> <span class="n">gs</span> <span class="o">*</span> <span class="n">es</span><span class="o">.</span><span class="n">dag</span><span class="p">()</span> <span class="o">-</span> <span class="mi">1</span><span class="n">j</span> <span class="o">*</span> <span class="n">es</span> <span class="o">*</span> <span class="n">gs</span><span class="o">.</span><span class="n">dag</span><span class="p">()))</span>
+
+    <span class="c1"># An attempt to compensate for &#39;edge&#39; transitions having different rates</span>
+    <span class="k">if</span> <span class="n">T1_opt</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span> <span class="ow">and</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">gamma_tot</span> <span class="o">=</span> <span class="mf">1.</span> <span class="o">/</span> <span class="n">T1_opt</span>  <span class="c1"># = gamma_1 + 2*br*gamma_1</span>
+        <span class="c1"># gamma_tot =</span>
+        <span class="n">gamma_1</span> <span class="o">=</span> <span class="n">gamma_tot</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">br_ratio</span><span class="p">)</span>
+        <span class="n">gamma_2</span> <span class="o">=</span> <span class="n">br_ratio</span> <span class="o">*</span> <span class="n">gamma_1</span>
+        <span class="c1"># Make collapse operators</span>
+        <span class="n">c_opL</span> <span class="o">=</span> <span class="p">[</span><span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">gamma_1</span><span class="p">)</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">gs</span> <span class="o">*</span> <span class="n">es</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span> <span class="k">for</span> <span class="n">gs</span><span class="p">,</span> <span class="n">es</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">gsL</span><span class="p">,</span> <span class="n">esL</span><span class="p">)]</span>
+        <span class="n">c_opL</span> <span class="o">+=</span> <span class="p">[</span><span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">gamma_2</span><span class="p">)</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">gs</span> <span class="o">*</span> <span class="n">es</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span> <span class="k">for</span> <span class="n">gs</span><span class="p">,</span> <span class="n">es</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">gsL</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">esL</span><span class="p">)]</span>
+        <span class="n">c_opL</span> <span class="o">+=</span> <span class="p">[</span><span class="n">sm</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">gamma_2</span><span class="p">)</span> <span class="o">*</span> <span class="n">toDense</span><span class="p">(</span><span class="n">gs</span> <span class="o">*</span> <span class="n">es</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span> <span class="k">for</span> <span class="n">gs</span><span class="p">,</span> <span class="n">es</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">gsL</span><span class="p">,</span> <span class="n">esL</span><span class="p">[</span><span class="mi">1</span><span class="p">:])]</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;N c_ops: </span><span class="si">{}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">c_opL</span><span class="p">)))</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">c_opL</span><span class="p">)</span>
+
+    <span class="n">delt</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;Delta&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="c1"># Hlst=[</span>
+    <span class="k">return</span> <span class="n">H0</span><span class="p">,</span> <span class="p">(</span><span class="n">Esym</span><span class="p">,</span> <span class="n">H1</span><span class="p">),</span> <span class="p">(</span><span class="n">delt</span><span class="p">,</span> <span class="n">Hdet</span><span class="p">),</span> <span class="n">c_opL</span>
+
+
+<span class="k">def</span> <span class="nf">Coh</span><span class="p">(</span><span class="n">M</span><span class="p">):</span> <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">M</span><span class="p">)[</span><span class="n">np</span><span class="o">.</span><span class="n">triu_indices</span><span class="p">(</span><span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)])</span>
+
+
+<span class="k">def</span> <span class="nf">Dia</span><span class="p">(</span><span class="n">M</span><span class="p">):</span> <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">M</span><span class="p">)[</span><span class="n">np</span><span class="o">.</span><span class="n">diag_indices</span><span class="p">(</span><span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])])</span>
+
+
+<span class="k">def</span> <span class="nf">All</span><span class="p">(</span><span class="n">M</span><span class="p">):</span> <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">M</span><span class="p">)[</span><span class="n">np</span><span class="o">.</span><span class="n">triu_indices</span><span class="p">(</span><span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">0</span><span class="p">)])</span>
+
+
+<span class="k">def</span> <span class="nf">makeMESymb_cacheable</span><span class="p">(</span><span class="n">H_L</span><span class="p">,</span> <span class="n">c_opL</span><span class="o">=</span><span class="p">[],</span> <span class="n">e_opL</span><span class="o">=</span><span class="p">[],</span> <span class="n">rhoS</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bReturnMatrixEquation</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;WIP: Idea is to have a cacheable version of makeMESymb as this can be</span>
+<span class="sd">    an expensive calculation. Tricky to do for sympy reasons though...</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+    <span class="nb">print</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">H_L</span><span class="p">),</span> <span class="nb">str</span><span class="p">(</span><span class="n">c_opL</span><span class="p">),</span> <span class="nb">str</span><span class="p">(</span><span class="n">e_opL</span><span class="p">))</span>
+    <span class="k">return</span>
+
+
+<div class="viewcode-block" id="makeMESymb"><a class="viewcode-back" href="../../usage.html#spylind.spylind.makeMESymb">[docs]</a><span class="k">def</span> <span class="nf">makeMESymb</span><span class="p">(</span><span class="n">H_L</span><span class="p">,</span> <span class="n">c_opL</span><span class="o">=</span><span class="p">[],</span> <span class="n">e_opL</span><span class="o">=</span><span class="p">[],</span> <span class="n">rhoS</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">bReturnMatrixEquation</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Take the Hamiltonia,coeficients and return density matrix evolution</span>
+<span class="sd">    expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]&quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;makeMESymb enter&#39;</span><span class="p">,</span> <span class="n">flush</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="c1"># Make the liouvillian-----------------------------------</span>
+    <span class="n">H0</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">H_L</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">))</span>
+    <span class="n">Nstates</span> <span class="o">=</span> <span class="n">H0</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">rhoS</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">rhoS</span> <span class="o">=</span> <span class="n">getRhoS</span><span class="p">(</span><span class="n">Nstates</span><span class="p">)</span>
+
+    <span class="c1"># Construct Hamiltonian part</span>
+    <span class="n">L</span> <span class="o">=</span> <span class="n">liouvillianS</span><span class="p">(</span><span class="n">H0</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">H_L</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">iterable</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="o">==</span> <span class="n">q</span><span class="o">.</span><span class="n">Qobj</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">matrix</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">:</span>
+            <span class="n">sym</span><span class="p">,</span> <span class="n">op</span> <span class="o">=</span> <span class="n">el</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;no coefficient for a hamiltonian element. Will assume it&#39;s 1&quot;</span><span class="p">)</span>
+            <span class="n">sym</span> <span class="o">=</span> <span class="mf">1.</span>
+            <span class="n">op</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">el</span><span class="p">)</span>
+        <span class="n">L</span> <span class="o">+=</span> <span class="n">sym</span> <span class="o">*</span> <span class="n">liouvillianS</span><span class="p">(</span><span class="n">op</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">c_opL</span><span class="p">[:]:</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">iterable</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="o">==</span> <span class="n">q</span><span class="o">.</span><span class="n">Qobj</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">matrix</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">type</span><span class="p">(</span><span class="n">el</span><span class="p">)</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">:</span>
+            <span class="n">coef</span><span class="p">,</span> <span class="n">op</span> <span class="o">=</span> <span class="n">el</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">coef</span> <span class="o">=</span> <span class="mf">1.</span>
+            <span class="n">op</span> <span class="o">=</span> <span class="n">el</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">SparseMatrix</span><span class="p">(</span><span class="n">op</span><span class="p">)</span>
+        <span class="n">L</span> <span class="o">+=</span> <span class="n">coef</span> <span class="o">*</span> <span class="n">liouvillianS</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">cOpL</span><span class="o">=</span><span class="p">[</span><span class="n">op</span><span class="p">])</span>
+
+    <span class="c1"># Get drho_dt</span>
+    <span class="n">drho_dtS</span> <span class="o">=</span> <span class="p">(</span><span class="n">L</span> <span class="o">*</span> <span class="n">rhoS</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Nstates</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+        <span class="n">Nstates</span><span class="p">,</span> <span class="n">Nstates</span><span class="p">)</span>  <span class="c1"># *sm.Matrix(rs)</span>
+    <span class="n">drho_dtS</span><span class="o">.</span><span class="n">simplify</span><span class="p">()</span>
+
+    <span class="n">e_op_outL</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">e_opL</span><span class="p">:</span>
+        <span class="n">ex</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">Trace</span><span class="p">(</span><span class="n">rhoS</span> <span class="o">*</span> <span class="n">op</span><span class="p">)</span><span class="o">.</span><span class="n">doit</span><span class="p">()</span>  <span class="c1"># np.sum(array(H1[off_diag_ind])*array(rhoS)[off_diag_ind]).subs(Esym,1)</span>
+        <span class="n">ex</span> <span class="o">=</span> <span class="n">ex</span><span class="o">.</span><span class="n">simplify</span><span class="p">()</span>
+        <span class="n">e_op_outL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
+    <span class="n">eq</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">Eq</span><span class="p">(</span><span class="n">rhoS</span><span class="p">,</span> <span class="n">drho_dtS</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">bReturnMatrixEquation</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">eq</span><span class="p">,</span> <span class="n">e_op_outL</span>
+    <span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span> <span class="o">=</span> <span class="n">seperate_DM_equation</span><span class="p">(</span><span class="n">eq</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span><span class="p">,</span> <span class="n">e_op_outL</span></div>
+
+
+<span class="c1"># Pretty printing of sympy matrices</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">re</span>
+    <span class="kn">from</span> <span class="nn">IPython.display</span> <span class="kn">import</span> <span class="n">HTML</span><span class="p">,</span> <span class="n">display</span><span class="p">,</span> <span class="n">Latex</span>
+    <span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+
+    <span class="k">def</span> <span class="nf">smDataFrame</span><span class="p">(</span><span class="n">mat</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Takes a dataframe with sympy elements, and returns it in a display-</span>
+<span class="sd">        friendly format.&quot;&quot;&quot;</span>
+        <span class="n">pd</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">display</span><span class="o">.</span><span class="n">max_colwidth</span> <span class="o">=</span> <span class="mi">100</span>
+        <span class="n">matNew</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">tc</span><span class="p">:</span> <span class="s1">&#39;$&#39;</span> <span class="o">+</span> <span class="n">sm</span><span class="o">.</span><span class="n">latex</span><span class="p">(</span><span class="n">tc</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39;$&#39;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ravel</span><span class="p">(</span><span class="n">mat</span><span class="p">))),</span> <span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">mat</span><span class="p">))</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">matNew</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="n">mat</span><span class="o">.</span><span class="n">index</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">mat</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">df</span>
+
+    <span class="k">def</span> <span class="nf">formatComplexDF</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">prec</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">title</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">topLeft</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="n">fpNumRE</span> <span class="o">=</span> <span class="sa">r</span><span class="s1">&#39;(-?\d*(\.\d+)?)&#39;</span>
+        <span class="n">imNumRE</span> <span class="o">=</span> <span class="sa">r</span><span class="s1">&#39;(-?\d*(\.\d+)?j)&#39;</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;(&gt;\$?)\(?(</span><span class="si">{0}</span><span class="s1">\+)?</span><span class="si">{1}</span><span class="s1">\)?(\$?&lt;)&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">fpNumRE</span><span class="p">,</span> <span class="n">imNumRE</span><span class="p">))</span>
+
+        <span class="k">def</span> <span class="nf">f</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">prc</span><span class="o">=</span><span class="n">prec</span><span class="p">):</span>
+            <span class="n">op</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">rlSt</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">imSt</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">en</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">rlSt</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">imSt</span> <span class="o">==</span> <span class="s2">&quot;0j&quot;</span><span class="p">:</span>
+                    <span class="n">rlSt</span> <span class="o">=</span> <span class="s2">&quot;0&quot;</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">rlSt</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">rlSt</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">rlSt</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{0}</span><span class="s2">.</span><span class="si">{1}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">][:</span><span class="n">prc</span><span class="p">])</span>
+
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">imSt</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">imSt</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="si">{0}</span><span class="s2">.</span><span class="si">{1}</span><span class="s2">j&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">][:</span><span class="n">prc</span><span class="p">])</span>
+
+            <span class="k">if</span> <span class="n">imSt</span> <span class="o">==</span> <span class="s2">&quot;0j&quot;</span><span class="p">:</span>
+                <span class="n">imSt</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">bPls</span> <span class="o">=</span> <span class="kc">True</span> <span class="k">if</span> <span class="p">(</span><span class="n">rlSt</span> <span class="ow">and</span> <span class="n">imSt</span><span class="p">)</span> <span class="k">else</span> <span class="kc">False</span>
+            <span class="c1"># return rlSt +bPls*&quot;+&quot; +imSt</span>
+            <span class="k">return</span> <span class="s2">&quot;</span><span class="si">{0}{1}{2}{3}{4}</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">op</span><span class="p">,</span> <span class="n">rlSt</span><span class="p">,</span> <span class="n">bPls</span> <span class="o">*</span> <span class="s2">&quot;+&quot;</span><span class="p">,</span> <span class="n">imSt</span><span class="p">,</span> <span class="n">en</span><span class="p">)</span>
+
+        <span class="n">htmlStr</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">to_html</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">title</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">titleStr</span> <span class="o">=</span> <span class="s2">&quot;&lt;hr&gt;&lt;H3&gt;</span><span class="si">{}</span><span class="s2">:&lt;/H3&gt;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">title</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">titleStr</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">topLeft</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">htmlStr</span> <span class="o">=</span> <span class="n">htmlStr</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;&lt;th&gt;&lt;/th&gt;&#39;</span><span class="p">,</span> <span class="s1">&#39;&lt;th&gt;</span><span class="si">{}</span><span class="s1">&lt;/th&gt;&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">topLeft</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">HTML</span><span class="p">(</span><span class="n">titleStr</span> <span class="o">+</span> <span class="n">r</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">htmlStr</span><span class="p">))</span>
+<span class="k">except</span> <span class="ne">ModuleNotFoundError</span><span class="p">:</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No pretty printing stuff (probably because no Pandas)&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="c1"># Tests</span>
+
+    <span class="c1"># sympy_me.py testSpline</span>
+
+    <span class="k">def</span> <span class="nf">test_makeMESymb</span><span class="p">():</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">test_constructBlochHamiltonian</span><span class="p">():</span>
+        <span class="k">pass</span>
+
+    <span class="c1"># OLD TESTS</span>
+    <span class="k">def</span> <span class="nf">test_makeEvolutionFuncs</span><span class="p">():</span>
+        <span class="n">H0</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span> <span class="o">*</span> <span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+        <span class="n">H1</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmax</span><span class="p">())</span>
+        <span class="n">c_opL</span> <span class="o">=</span> <span class="p">[</span><span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">destroy</span><span class="p">(</span><span class="mi">2</span><span class="p">))]</span>
+        <span class="n">delt</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;Delta&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">coefs</span><span class="p">,</span> <span class="n">diagL</span><span class="p">,</span> <span class="n">cohL</span><span class="p">,</span> <span class="n">coh_dtM</span><span class="p">,</span> <span class="n">diag_dtM</span><span class="p">,</span> <span class="n">polS</span> <span class="o">=</span> <span class="n">makeEvolutionFuncs</span><span class="p">(</span>
+            <span class="n">H0</span><span class="p">,</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qeye</span><span class="p">(</span><span class="n">H0</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])),</span> <span class="mi">1</span> <span class="o">*</span> <span class="p">[(</span><span class="n">delt</span><span class="p">,</span> <span class="n">H1</span><span class="p">)],</span> <span class="n">c_opL</span><span class="p">,</span> <span class="n">bSymbOnly</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">coefs</span><span class="p">,</span> <span class="n">diagL</span><span class="p">,</span> <span class="n">cohL</span><span class="p">,</span> <span class="n">coh_dtM</span><span class="p">,</span> <span class="n">diag_dtM</span><span class="p">,</span> <span class="n">polS</span>
+
+    <span class="k">def</span> <span class="nf">test_makeEvolutionSymbollic</span><span class="p">():</span>
+        <span class="sd">&quot;&quot;&quot;Incomplete- test how the symbollic side of things works&quot;&quot;&quot;</span>
+        <span class="n">H0</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span> <span class="o">*</span> <span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+        <span class="n">H1</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmax</span><span class="p">())</span>
+        <span class="n">c_opL</span> <span class="o">=</span> <span class="p">[</span><span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">destroy</span><span class="p">(</span><span class="mi">2</span><span class="p">))]</span>
+        <span class="n">delt</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;Delta&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">Ef</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s2">&quot;Ef&quot;</span><span class="p">)</span>
+        <span class="c1"># def makeEvolutionFuncsHardWork(H0, H1, HlstM=[], c_opL=[], rhoS=None):</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">makeEvolutionSymbs</span><span class="p">(</span><span class="n">H0</span> <span class="o">+</span> <span class="n">delt</span> <span class="o">*</span> <span class="n">H1</span><span class="p">,</span> <span class="n">c_opL</span><span class="p">,</span> <span class="n">rhoS</span><span class="o">=</span><span class="n">getRhoS</span><span class="p">(</span><span class="n">H0</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">out</span>
+
+    <span class="k">def</span> <span class="nf">test_makeEvolutionFuncs_numerical</span><span class="p">():</span>
+        <span class="n">H0</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span> <span class="o">*</span> <span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+        <span class="n">H1</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmax</span><span class="p">())</span>
+        <span class="n">c_opL</span> <span class="o">=</span> <span class="p">[</span><span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">destroy</span><span class="p">(</span><span class="mi">2</span><span class="p">))]</span>
+        <span class="n">delt</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;Delta&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">dcoh_dt</span><span class="p">,</span> <span class="n">ddia_dt</span><span class="p">,</span> <span class="n">calc_pol</span><span class="p">,</span> <span class="n">recons_rho</span><span class="p">,</span> <span class="n">init_state</span><span class="p">,</span> <span class="n">Ndiag</span><span class="p">,</span> <span class="n">Ncoh</span> <span class="o">=</span> <span class="n">makeEvolutionFuncs</span><span class="p">(</span>
+            <span class="n">H0</span><span class="p">,</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmax</span><span class="p">()),</span> <span class="mi">1</span> <span class="o">*</span> <span class="p">[(</span><span class="n">delt</span><span class="p">,</span> <span class="n">H1</span><span class="p">)],</span> <span class="n">c_opL</span><span class="p">,</span> <span class="n">bSymbOnly</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">dcoh_dt</span><span class="p">,</span> <span class="n">ddia_dt</span><span class="p">,</span> <span class="n">calc_pol</span><span class="p">,</span> <span class="n">recons_rho</span><span class="p">,</span> <span class="n">init_state</span><span class="p">,</span> <span class="n">Ndiag</span><span class="p">,</span> <span class="n">Ncoh</span>
+
+    <span class="k">def</span> <span class="nf">test_makeBlochEqSyms</span><span class="p">():</span>
+        <span class="n">H0</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span> <span class="o">*</span> <span class="n">q</span><span class="o">.</span><span class="n">sigmaz</span><span class="p">()</span><span class="o">.</span><span class="n">dag</span><span class="p">())</span>
+        <span class="n">H1</span> <span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">sigmax</span><span class="p">())</span>
+        <span class="n">c_opL</span> <span class="o">=</span> <span class="p">[</span><span class="n">toDense</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">destroy</span><span class="p">(</span><span class="mi">2</span><span class="p">))]</span>
+        <span class="n">delt</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;Delta&#39;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">Ef</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s2">&quot;Ef&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">makeBlochEqSymbs</span><span class="p">(</span><span class="n">H0</span><span class="p">,</span> <span class="n">Hfield_L</span><span class="o">=</span><span class="p">[[</span><span class="n">Ef</span><span class="p">,</span> <span class="n">H1</span><span class="p">]],</span> <span class="n">Hother_L</span><span class="o">=</span><span class="p">[],</span> <span class="n">c_opL</span><span class="o">=</span><span class="p">[],</span> <span class="n">rhoS</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+
+    <span class="c1">#coefs, diagL, cohL, coh_dtM, diag_dtM, polS= test_makeEvolutionFuncs()</span>
+    <span class="c1">#dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh = test_makeEvolutionFuncs_numerical()</span>
+</pre></div>
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        
+        &copy; Copyright 2020, Morgan Hedges
+
+    </p>
+  </div>
+    
+    
+    
+    Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a
+    
+    <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a>
+    
+    provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
