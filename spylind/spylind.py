@@ -5,17 +5,11 @@ from sympy.printing import sstr
 import qutip as q
 import sympy as sm
 import os
-from MT import liouvillianS
 from collections.abc import Iterable   # drop `.abc` with Python 2.7 or lower
 
 
-def iterable(obj):
+def isiterable(obj):
     return isinstance(obj, Iterable)
-# home = os.path.expanduser("~")
-# if not os.path.exists(home + '/cache'):
-#    os.makedirs(home + '/cache')
-#
-
 
 def toDense(qobj):
     if type(qobj) is q.Qobj:
@@ -23,6 +17,37 @@ def toDense(qobj):
     else:
         return qobj
 
+def SpreSmSp(op):
+    opN=op.shape[0]
+    opSM = sm.SparseMatrix(op)
+    #This is essentially just a sparse block-matrix
+    SpreS=sm.SparseMatrix(opN**2, opN**2, {(opN*k,opN*k):opSM for k in range(opN) })
+    return SpreS
+
+def SpostSmSp(op):
+    N=op.shape[0]
+
+    dct = {(N*l,N*k ):
+           sm.SparseMatrix(N,N, {(i,i):op[k,l] for i in range(N)} ) for k,l in product(range(N), repeat=2)
+        }
+    SpostS = sm.SparseMatrix(N**2,N**2, dct)
+    return SpostS
+
+def liouvillianS(op, cOpL=[]):
+    if op is not None:
+        L = -1j*(SpreSmSp(op) - SpostSmSp((op)))
+
+    else:
+        N=cOpL[0].shape[0]
+        #L = np.matrix(np.zeros((N**2,N**2), dtype='object'))
+        L = sm.SparseMatrix(N**2, N**2, {})
+    for cOp in cOpL:
+        #cOp = np.matrix(cOp)
+        cdc = cOp.H*cOp
+        #cdc = herm_c(cOp)*cOp
+        L += SpreSmSp(cOp)*SpostSmSp(cOp.H) -\
+            (SpreSmSp(cdc) +SpostSmSp(cdc))/2
+    return L
 
 def seperate_DM_equation(eq):
     cohL = (Coh(eq.lhs))
@@ -203,7 +228,7 @@ def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
 
     # T2s
     if coh_decay_rates != 0:
-        if not iterable(coh_decay_rates):
+        if not isiterable(coh_decay_rates):
             rate = coh_decay_rates
             coh_decay_rates = [[rate for k in range(len(esL))]
                                for i in range(len(gsL))]
