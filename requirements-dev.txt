@@ -9,6 +9,7 @@ jupyter
 # These are dependencies of various sphinx extensions for documentation.
 ipython
 matplotlib
+recommonmark
 numpydoc
 sphinx-copybutton
 sphinx_rtd_theme
