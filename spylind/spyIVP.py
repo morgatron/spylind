@@ -600,19 +600,24 @@ class ODESolver(object):
                                  atol=atol, rtol=rtol)  # ,order=5) # or adams
             # r.set_integrator('zvode', method='bdf',max_step=max_step_size, atol=1e-12, rtol=1e-6)#,order=5) # or adams
             #par0=self._pack(self.params.initial.P, self.params.initial.w, self.params.initial.pop)
-            r.set_initial_value(self.flatten_state(self.par0), 0)
-            self.integrateObject = r
-            self.tSteps = tSteps + (tSteps[3] - tSteps[2]) / 2
-            # Integrate
             self.clearOutput()
+            self.integrateObject = r
+            if tSteps[0]==0:
+                tSteps= tSteps[1:]
+                cur_state_flat = self.flatten_state(self.par0)
+                r.set_initial_value(cur_state_flat, 0)
+                self._online_process_func(cur_state_flat)
+                print("Not integrating first step (it's just the initial state)")
+            self.tSteps = tSteps #+ (tSteps[3] - tSteps[2]) / 2
+            # Integrate
             for k, tNext in enumerate(self.tSteps):
                 if not r.successful():
                     self.lastGoodInd = k - 1
                     print("Integration failed at sim time {}".format(tNext))
                     break
-                cur = r.integrate(tNext)
+                cur_state_flat = r.integrate(tNext)
                 # probably reshaping, calculating fields etc
-                self._online_process_func(cur)
+                self._online_process_func(cur_state_flat)
             return np.array(self.outputL)
         elif self.backend == 'tensorflow':
             y_init = tf.constant(self.flatten_state(

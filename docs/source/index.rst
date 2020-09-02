@@ -8,7 +8,7 @@ Spylind Documentation
 
 .. toctree::
    :maxdepth: 2
-
+   overview
    installation
    usage
    release-history

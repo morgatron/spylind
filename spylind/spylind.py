@@ -26,7 +26,7 @@ def toDense(qobj):
     else:
         return qobj
 
-def SpreSmSp(op):here I take the rea
+def SpreSmSp(op):
     opN=op.shape[0]
     opSM = sm.SparseMatrix(op)
     #This is essentially just a sparse block-matrix
@@ -44,7 +44,7 @@ def SpostSmSp(op):
 
 def liouvillianS(op, cOpL=[]):
     if op is not None:
-        L = -1j*(SpreSmSp(op) - SpostSmSp((op)))
+        L = 1j*(SpreSmSp(op) - SpostSmSp((op)))
 
     else:
         N=cOpL[0].shape[0]
@@ -274,7 +274,7 @@ def makeMESymb_cacheable(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquati
 def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     """Take the Hamiltonia,coeficients and return density matrix evolution
     expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]"""
-    print('makeMESymb enter', flush=True)
+    #print('makeMESymb enter', flush=True)
     #pdb.set_trace()
     # Make the liouvillian-----------------------------------
     H0 = H_L.pop(0)
