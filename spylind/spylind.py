@@ -9,6 +9,14 @@ from collections import Iterable   # drop `.abc` with Python 2.7 or lower
 from itertools import product
 from . import spyIVP as ivp
 
+
+#TODO:
+#* mesolve: add support for more qutip features, like
+#   the ability to have a function coefficient directly
+#* mesolve: Check the time offsets match up with qutip
+#* mesolve: resolve sign change relative to qutip for driving terms
+#* Add some labelling to outputs
+
 def isiterable(obj):
     return isinstance(obj, Iterable)
 
@@ -18,7 +26,7 @@ def toDense(qobj):
     else:
         return qobj
 
-def SpreSmSp(op):
+def SpreSmSp(op):here I take the rea
     opN=op.shape[0]
     opSM = sm.SparseMatrix(op)
     #This is essentially just a sparse block-matrix
@@ -269,7 +277,8 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     print('makeMESymb enter', flush=True)
     #pdb.set_trace()
     # Make the liouvillian-----------------------------------
-    H0 = sm.SparseMatrix(H_L.pop(0))
+    H0 = H_L.pop(0)
+    H0 = sm.SparseMatrix(H0)
     Nstates = H0.shape[0]
 
     if rhoS is None:
@@ -344,8 +353,6 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
     return state_res
     #unpack H
     #make simulation
-    #assign rho0
-    #simulate
 
 # Pretty printing of sympy matrices
 try:
