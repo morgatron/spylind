@@ -7,7 +7,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>spylind.spyIVP &mdash; Spylind 0.post7+g857c336 documentation</title>
+  <title>spylind.spyIVP &mdash; Spylind 0.post8+g5773347 documentation</title>
   
 
   
@@ -62,7 +62,7 @@
             
             
               <div class="version">
-                0.post7+g857c336
+                0.post8+g5773347
               </div>
             
           
@@ -795,15 +795,16 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span> <span class="o">=</span> <span class="p">[]</span>
 
     <span class="k">def</span> <span class="nf">set_online_processing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">f</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; This is the function called at every output step. If not given, it&#39;ll just output the system state variables.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span> <span class="o">=</span> <span class="p">[]</span>
-
             <span class="k">def</span> <span class="nf">f2</span><span class="p">(</span><span class="n">sim_state</span><span class="p">):</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_unpack</span><span class="p">(</span><span class="n">sim_state</span><span class="p">))</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="k">def</span> <span class="nf">f2</span><span class="p">(</span><span class="n">sim_state</span><span class="p">):</span>
                 <span class="n">state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unpack</span><span class="p">(</span><span class="n">sim_state</span><span class="p">)</span>
-                <span class="k">return</span> <span class="n">f</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">outputL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="p">(</span><span class="n">state</span><span class="p">)</span> <span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_online_process_func</span> <span class="o">=</span> <span class="n">f2</span></div>
 

@@ -7,7 +7,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>spylind.spylind &mdash; Spylind 0.post7+g857c336 documentation</title>
+  <title>spylind.spylind &mdash; Spylind 0.post8+g5773347 documentation</title>
   
 
   
@@ -62,7 +62,7 @@
             
             
               <div class="version">
-                0.post7+g857c336
+                0.post8+g5773347
               </div>
             
           
@@ -215,7 +215,6 @@
     <span class="n">diag_dtL</span> <span class="o">=</span> <span class="p">(</span><span class="n">Dia</span><span class="p">(</span><span class="n">eq</span><span class="o">.</span><span class="n">rhs</span><span class="p">))</span>
     <span class="k">return</span> <span class="n">diagL</span> <span class="o">+</span> <span class="n">cohL</span><span class="p">,</span> <span class="n">diag_dtL</span> <span class="o">+</span> <span class="n">coh_dtL</span></div>
 
-
 <span class="k">def</span> <span class="nf">convMat</span><span class="p">(</span><span class="n">M</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Convert a pure symbollic matrix into a matrix of symbols (I think?)&quot;&quot;&quot;</span>
     <span class="n">el</span> <span class="o">=</span> <span class="n">M</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
@@ -224,7 +223,6 @@
     <span class="n">symArr</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">symbols</span><span class="p">(</span><span class="s1">&#39;</span><span class="si">{0}</span><span class="s1">:</span><span class="si">{1}</span><span class="s1">(:</span><span class="si">{2}</span><span class="s1">)&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="o">*</span><span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
     <span class="n">outputM</span> <span class="o">=</span> <span class="n">M</span><span class="o">.</span><span class="n">subs</span><span class="p">({</span><span class="n">elA</span><span class="p">:</span> <span class="n">elB</span> <span class="k">for</span> <span class="n">elA</span><span class="p">,</span> <span class="n">elB</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">M</span><span class="p">),</span> <span class="nb">list</span><span class="p">(</span><span class="n">symArr</span><span class="p">))})</span>
     <span class="k">return</span> <span class="n">outputM</span>
-
 
 <span class="k">def</span> <span class="nf">makeHermS</span><span class="p">(</span><span class="n">M</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Make a matrix of symbols concretely Hermition by replacing lower</span>
@@ -236,17 +234,14 @@
                 <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">rIU</span><span class="p">,</span> <span class="n">cIU</span><span class="p">,</span> <span class="n">rIL</span><span class="p">,</span> <span class="n">cIL</span><span class="p">)})</span>
     <span class="k">return</span> <span class="n">M</span>
 
-
 <span class="k">def</span> <span class="nf">makeHerm</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Purely numerical version of the above.&quot;&quot;&quot;</span>
     <span class="n">dia</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diagonal</span><span class="p">(</span><span class="n">m</span><span class="p">)</span><span class="o">.</span><span class="n">squeeze</span><span class="p">()</span>
     <span class="k">return</span> <span class="n">m</span> <span class="o">+</span> <span class="n">m</span><span class="o">.</span><span class="n">conjugate</span><span class="p">()</span><span class="o">.</span><span class="n">T</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">diag</span><span class="p">(</span><span class="n">dia</span><span class="p">)</span>
 
-
 <span class="k">def</span> <span class="nf">getRhoLabels</span><span class="p">(</span><span class="n">labels</span><span class="p">):</span>
     <span class="n">labs</span> <span class="o">=</span> <span class="p">[[</span><span class="s1">&#39;</span><span class="si">{}{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">lab1</span><span class="p">,</span> <span class="n">lab2</span><span class="p">)</span> <span class="k">for</span> <span class="n">lab1</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">]</span> <span class="k">for</span> <span class="n">lab2</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">]</span>
     <span class="k">return</span> <span class="n">labs</span>
-
 
 <span class="k">def</span> <span class="nf">getTensoredLabels</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="n">labels_list_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
@@ -256,7 +251,6 @@
         <span class="n">mat_labels_next</span> <span class="o">=</span> <span class="n">getRhoLabels</span><span class="p">(</span><span class="n">labels_list_list</span><span class="o">.</span><span class="n">pop</span><span class="p">())</span>
         <span class="n">mat_labels_cur</span> <span class="o">=</span> <span class="n">_getTensoredLabels</span><span class="p">(</span><span class="n">mat_labels_next</span><span class="p">,</span> <span class="n">mat_labels_cur</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">mat_labels_cur</span>
-
 
 <span class="k">def</span> <span class="nf">_getTensoredLabels</span><span class="p">(</span><span class="n">mat_labels1</span><span class="p">,</span> <span class="n">mat_labels2</span><span class="p">):</span>
     <span class="n">N1</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">mat_labels1</span><span class="p">)</span>
@@ -270,7 +264,6 @@
                     <span class="n">labelM</span><span class="p">[</span><span class="n">i1</span> <span class="o">*</span> <span class="n">N2</span> <span class="o">+</span> <span class="n">i2</span><span class="p">,</span> <span class="n">k1</span> <span class="o">*</span> <span class="n">N2</span> <span class="o">+</span> <span class="n">k2</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;</span><span class="si">{}</span><span class="s1">|</span><span class="si">{}</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">mat_labels1</span><span class="p">[</span><span class="n">i1</span><span class="p">][</span><span class="n">k1</span><span class="p">],</span> <span class="n">mat_labels2</span><span class="p">[</span><span class="n">i2</span><span class="p">][</span><span class="n">k2</span><span class="p">])</span>
 
     <span class="k">return</span> <span class="n">labelM</span>
-
 
 <span class="k">def</span> <span class="nf">getTensoredRhoS</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;e.g getTensoredRhoS(&#39;123&#39;, &#39;abc&#39;) will return a DM with symbols labelled</span>
@@ -294,7 +287,6 @@
             <span class="n">rhoM</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">sym</span>
     <span class="k">return</span> <span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">rhoM</span><span class="p">)</span>
 
-
 <span class="k">def</span> <span class="nf">getRhoS</span><span class="p">(</span><span class="n">Nstates</span><span class="p">):</span>
     <span class="k">def</span> <span class="nf">symName</span><span class="p">(</span><span class="n">i1</span><span class="p">,</span> <span class="n">i2</span><span class="p">):</span> <span class="k">return</span> <span class="s1">&#39;</span><span class="se">\\</span><span class="s1">rho_{{</span><span class="si">{0}</span><span class="s1">|</span><span class="si">{1}</span><span class="s1">}}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">i1</span><span class="p">,</span> <span class="n">i2</span><span class="p">)</span>
     <span class="n">M</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">Nstates</span><span class="p">,</span> <span class="n">Nstates</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;O&#39;</span><span class="p">)</span>
@@ -308,7 +300,6 @@
         <span class="n">M</span><span class="p">[</span><span class="n">inds</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">inds</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">conjugate</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
 
     <span class="k">return</span> <span class="n">sm</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">M</span><span class="p">)</span>
-
 
 <span class="k">def</span> <span class="nf">constructBlochHamiltonian</span><span class="p">(</span><span class="n">gsEnergies</span><span class="p">,</span> <span class="n">esEnergies</span><span class="p">,</span> <span class="n">osc_strengths</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">T1_opt</span><span class="o">=-</span>
                               <span class="mi">1</span><span class="p">,</span> <span class="n">br_ratio</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">decay_rates</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">coh_decay_rates</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
@@ -412,7 +403,6 @@
     <span class="c1"># Hlst=[</span>
     <span class="k">return</span> <span class="n">H0</span><span class="p">,</span> <span class="p">(</span><span class="n">Esym</span><span class="p">,</span> <span class="n">H1</span><span class="p">),</span> <span class="p">(</span><span class="n">delt</span><span class="p">,</span> <span class="n">Hdet</span><span class="p">),</span> <span class="n">c_opL</span>
 
-
 <span class="k">def</span> <span class="nf">Coh</span><span class="p">(</span><span class="n">M</span><span class="p">):</span> <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">M</span><span class="p">)[</span><span class="n">np</span><span class="o">.</span><span class="n">triu_indices</span><span class="p">(</span><span class="n">M</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)])</span>
 
 
@@ -474,20 +464,33 @@
         <span class="n">ex</span> <span class="o">=</span> <span class="n">ex</span><span class="o">.</span><span class="n">simplify</span><span class="p">()</span>
         <span class="n">e_op_outL</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span>
     <span class="n">eq</span> <span class="o">=</span> <span class="n">sm</span><span class="o">.</span><span class="n">Eq</span><span class="p">(</span><span class="n">rhoS</span><span class="p">,</span> <span class="n">drho_dtS</span><span class="p">)</span>
-    <span class="k">if</span> <span class="n">bReturnMatrixEquation</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">bReturnMatrixEquation</span><span class="p">:</span> <span class="c1">#returns the full matrix</span>
         <span class="k">return</span> <span class="n">eq</span><span class="p">,</span> <span class="n">e_op_outL</span>
-    <span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span> <span class="o">=</span> <span class="n">seperate_DM_equation</span><span class="p">(</span><span class="n">eq</span><span class="p">)</span>
+    <span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span> <span class="o">=</span> <span class="n">seperate_DM_equation</span><span class="p">(</span><span class="n">eq</span><span class="p">)</span> <span class="c1">#otherwise just the evolving bits</span>
     <span class="k">return</span> <span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span><span class="p">,</span> <span class="n">e_op_outL</span></div>
 
 
 <span class="c1">#mesolve(H, rho0, tlist, c_ops=None, e_ops=None</span>
-<span class="k">def</span> <span class="nf">mesolve</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">tlist</span><span class="p">,</span> <span class="n">c_ops</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">e_ops</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dims</span> <span class="o">=</span> <span class="p">{},</span> <span class="n">t_dep_fL</span><span class="o">=</span><span class="p">{},</span> <span class="n">state_dep_fL</span><span class="o">=</span><span class="p">{},</span> <span class="n">max_step_size</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-10</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">mesolve</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="n">rho0</span><span class="p">,</span> <span class="n">tlist</span><span class="p">,</span> <span class="n">c_ops</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">e_ops</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">dims</span> <span class="o">=</span> <span class="p">{},</span> <span class="n">t_dep_fL</span><span class="o">=</span><span class="p">{},</span> <span class="n">coupling_fL</span><span class="o">=</span><span class="p">{},</span> <span class="n">max_step_size</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">atol</span><span class="o">=</span><span class="mf">1e-10</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Mimic the interface of qutip&#39;s mesolve</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span><span class="p">,</span> <span class="n">e_op_outL</span> <span class="o">=</span> <span class="n">makeMESymb</span><span class="p">(</span><span class="n">H</span><span class="p">,</span> <span class="n">c_opL</span><span class="o">=</span><span class="n">c_ops</span><span class="p">,</span> <span class="n">e_opL</span> <span class="o">=</span> <span class="n">e_ops</span><span class="p">)</span>
 
     <span class="n">ode_s</span> <span class="o">=</span> <span class="n">ivp</span><span class="o">.</span><span class="n">ODESolver</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">lhsL</span><span class="p">,</span> <span class="n">rhsL</span><span class="p">)</span> <span class="p">),</span>  <span class="n">dims</span><span class="o">=</span><span class="n">dims</span><span class="p">,</span> <span class="n">driving_syms</span><span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">t_dep_fL</span><span class="o">.</span><span class="n">keys</span><span class="p">()))</span>
     <span class="n">ode_s</span><span class="o">.</span><span class="n">set_driving</span><span class="p">(</span><span class="n">t_dep_fL</span><span class="p">)</span>
+    <span class="c1">#ode_s.set_state_dep()</span>
 
+    <span class="c1"># Convert a qobj state input to a density matrix</span>
+    <span class="k">if</span> <span class="n">q</span><span class="o">.</span><span class="n">isket</span><span class="p">(</span><span class="n">rho0</span><span class="p">):</span>
+        <span class="n">rho0</span> <span class="o">=</span> <span class="n">rho0</span><span class="o">*</span><span class="n">rho0</span><span class="o">.</span><span class="n">dag</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">q</span><span class="o">.</span><span class="n">isoper</span><span class="p">(</span><span class="n">rho0</span><span class="p">):</span>
+        <span class="n">rho0</span><span class="o">=</span> <span class="n">toDense</span><span class="p">(</span><span class="n">rho0</span><span class="p">)</span>
+    <span class="n">rho0</span> <span class="o">=</span> <span class="n">Dia</span><span class="p">(</span><span class="n">rho0</span><span class="p">)</span> <span class="o">+</span> <span class="n">Coh</span><span class="p">(</span><span class="n">rho0</span><span class="p">)</span>
     <span class="n">ode_s</span><span class="o">.</span><span class="n">set_initial_conditions</span><span class="p">(</span><span class="n">rho0</span> <span class="p">)</span>
+    <span class="n">e_op_f_L</span> <span class="o">=</span> <span class="p">[</span><span class="n">sm</span><span class="o">.</span><span class="n">lambdify</span><span class="p">(</span><span class="n">ode_s</span><span class="o">.</span><span class="n">symsD</span><span class="p">[</span><span class="s1">&#39;prop_state_syms&#39;</span><span class="p">],</span><span class="n">e_op</span> <span class="p">)</span> <span class="k">for</span> <span class="n">e_op</span> <span class="ow">in</span> <span class="n">e_op_outL</span><span class="p">]</span>
+    <span class="k">def</span> <span class="nf">calc_expectation_vals</span><span class="p">(</span><span class="n">state</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">f</span><span class="p">(</span><span class="o">*</span><span class="n">state</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">e_op_f_L</span><span class="p">]</span>
+    <span class="n">ode_s</span><span class="o">.</span><span class="n">set_online_processing</span><span class="p">(</span><span class="n">calc_expectation_vals</span><span class="p">)</span> 
     <span class="n">ode_s</span><span class="o">.</span><span class="n">setup</span><span class="p">()</span>
     <span class="n">out</span><span class="o">=</span><span class="n">ode_s</span><span class="o">.</span><span class="n">integrate</span><span class="p">(</span><span class="n">tlist</span><span class="p">,</span> <span class="n">max_step_size</span><span class="o">=</span><span class="n">max_step_size</span><span class="p">,</span> 
                                 <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span> <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">)</span>
