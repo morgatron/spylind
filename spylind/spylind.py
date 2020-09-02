@@ -5,8 +5,9 @@ from sympy.printing import sstr
 import qutip as q
 import sympy as sm
 import os
-from collections.abc import Iterable   # drop `.abc` with Python 2.7 or lower
-
+from collections import Iterable   # drop `.abc` with Python 2.7 or lower
+from itertools import product
+from . import spyIVP as ivp
 
 def isiterable(obj):
     return isinstance(obj, Iterable)
@@ -276,6 +277,7 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     """Take the Hamiltonia,coeficients and return density matrix evolution
     expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]"""
     print('makeMESymb enter', flush=True)
+    #pdb.set_trace()
     # Make the liouvillian-----------------------------------
     H0 = sm.SparseMatrix(H_L.pop(0))
     Nstates = H0.shape[0]
@@ -319,6 +321,28 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
     lhsL, rhsL = seperate_DM_equation(eq)
     return lhsL, rhsL, e_op_outL
 
+
+#mesolve(H, rho0, tlist, c_ops=None, e_ops=None
+def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, state_dep_fL={}, max_step_size=0.1, rtol=1e-6, atol=1e-10):
+    lhsL, rhsL, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL = e_ops)
+
+    ode_s = ivp.ODESolver(dict(zip(lhsL, rhsL) ),  dims=dims, driving_syms= list(t_dep_fL.keys()))
+    ode_s.set_driving(t_dep_fL)
+
+    ode_s.set_initial_conditions(rho0 )
+    ode_s.setup()
+    out=ode_s.integrate(tlist, max_step_size=max_step_size, 
+                                atol=atol, rtol=rtol)
+    state_res = np.array(ode_s.outputL).squeeze()
+    # Should do something about expectation values here. Probably evaluate them
+    #if e_op_outL:
+        #f = sm.lambdify(ode_s.state_syms, e_op_outL)
+        #return f(state_res)
+    return state_res
+    #unpack H
+    #make simulation
+    #assign rho0
+    #simulate
 
 # Pretty printing of sympy matrices
 try:
