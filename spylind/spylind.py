@@ -57,7 +57,6 @@ def seperate_DM_equation(eq):
     diag_dtL = (Dia(eq.rhs))
     return diagL + cohL, diag_dtL + coh_dtL
 
-
 def convMat(M):
     """Convert a pure symbollic matrix into a matrix of symbols (I think?)"""
     el = M[0, 0]
@@ -66,7 +65,6 @@ def convMat(M):
     symArr = sm.symbols('{0}:{1}(:{2})'.format(base, *M.shape))
     outputM = M.subs({elA: elB for elA, elB in zip(list(M), list(symArr))})
     return outputM
-
 
 def makeHermS(M):
     """Make a matrix of symbols concretely Hermition by replacing lower
@@ -78,17 +76,14 @@ def makeHermS(M):
                 in zip(rIU, cIU, rIL, cIL)})
     return M
 
-
 def makeHerm(m):
     """Purely numerical version of the above."""
     dia = np.diagonal(m).squeeze()
     return m + m.conjugate().T - np.diag(dia)
 
-
 def getRhoLabels(labels):
     labs = [['{}{}'.format(lab1, lab2) for lab1 in labels] for lab2 in labels]
     return labs
-
 
 def getTensoredLabels(*args):
     labels_list_list = list(args)
@@ -98,7 +93,6 @@ def getTensoredLabels(*args):
         mat_labels_next = getRhoLabels(labels_list_list.pop())
         mat_labels_cur = _getTensoredLabels(mat_labels_next, mat_labels_cur)
     return mat_labels_cur
-
 
 def _getTensoredLabels(mat_labels1, mat_labels2):
     N1 = len(mat_labels1)
@@ -112,7 +106,6 @@ def _getTensoredLabels(mat_labels1, mat_labels2):
                     labelM[i1 * N2 + i2, k1 * N2 + k2] = '{}|{}'.format(mat_labels1[i1][k1], mat_labels2[i2][k2])
 
     return labelM
-
 
 def getTensoredRhoS(*args):
     """e.g getTensoredRhoS('123', 'abc') will return a DM with symbols labelled
@@ -136,7 +129,6 @@ def getTensoredRhoS(*args):
             rhoM[i, k] = sym
     return sm.Matrix(rhoM)
 
-
 def getRhoS(Nstates):
     def symName(i1, i2): return '\\rho_{{{0}|{1}}}'.format(i1, i2)
     M = np.empty((Nstates, Nstates), dtype='O')
@@ -150,7 +142,6 @@ def getRhoS(Nstates):
         M[inds[1], inds[0]] = sm.conjugate(sym)
 
     return sm.Matrix(M)
-
 
 def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
                               1, br_ratio=0, decay_rates=None, coh_decay_rates=0):
@@ -254,7 +245,6 @@ def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
     # Hlst=[
     return H0, (Esym, H1), (delt, Hdet), c_opL
 
-
 def Coh(M): return list(np.array(M)[np.triu_indices(M.shape[0], 1)])
 
 
@@ -316,20 +306,33 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
         ex = ex.simplify()
         e_op_outL.append(ex)
     eq = sm.Eq(rhoS, drho_dtS)
-    if bReturnMatrixEquation:
+    if bReturnMatrixEquation: #returns the full matrix
         return eq, e_op_outL
-    lhsL, rhsL = seperate_DM_equation(eq)
+    lhsL, rhsL = seperate_DM_equation(eq) #otherwise just the evolving bits
     return lhsL, rhsL, e_op_outL
 
 
 #mesolve(H, rho0, tlist, c_ops=None, e_ops=None
-def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, state_dep_fL={}, max_step_size=0.1, rtol=1e-6, atol=1e-10):
+def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coupling_fL={}, max_step_size=0.1, rtol=1e-6, atol=1e-10):
+    """ Mimic the interface of qutip's mesolve
+    """
     lhsL, rhsL, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL = e_ops)
 
     ode_s = ivp.ODESolver(dict(zip(lhsL, rhsL) ),  dims=dims, driving_syms= list(t_dep_fL.keys()))
     ode_s.set_driving(t_dep_fL)
+    #ode_s.set_state_dep()
 
+    # Convert a qobj state input to a density matrix
+    if q.isket(rho0):
+        rho0 = rho0*rho0.dag()
+    if q.isoper(rho0):
+        rho0= toDense(rho0)
+    rho0 = Dia(rho0) + Coh(rho0)
     ode_s.set_initial_conditions(rho0 )
+    e_op_f_L = [sm.lambdify(ode_s.symsD['prop_state_syms'],e_op ) for e_op in e_op_outL]
+    def calc_expectation_vals(state):
+        return [f(*state) for f in e_op_f_L]
+    ode_s.set_online_processing(calc_expectation_vals) 
     ode_s.setup()
     out=ode_s.integrate(tlist, max_step_size=max_step_size, 
                                 atol=atol, rtol=rtol)

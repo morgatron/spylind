@@ -637,15 +637,16 @@ class ODESolver(object):
         self.outputL = []
 
     def set_online_processing(self, f=None):
+        """ This is the function called at every output step. If not given, it'll just output the system state variables.
+        """
         if f is None:
             self.outputL = []
-
             def f2(sim_state):
                 self.outputL.append(self._unpack(sim_state))
         else:
             def f2(sim_state):
                 state = self._unpack(sim_state)
-                return f(state)
+                self.outputL.append(f(state) )
 
         self._online_process_func = f2
 
