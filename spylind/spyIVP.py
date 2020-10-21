@@ -37,10 +37,12 @@ import pdb
 from munch import Munch, munchify
 
 from scipy import integrate
-import tensorflow as tf
+#import tensorflow as tf
 from itertools import chain
 from collections.abc import Mapping
 
+
+tf = None
 
 def list_diff(first, second):
     second = set(second)
@@ -287,6 +289,10 @@ class ODESolver(object):
         print(self.symsD)
         print("state dependent functions should have signature {}".format(
             self.state_func_sig))
+        if self.backend == 'tensorflow':
+            import tensorflow
+            global tf
+            tf = tensorflow
 
     @staticmethod
     def sort_symbols(eqD):

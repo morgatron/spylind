@@ -151,7 +151,8 @@ def getRhoS(Nstates):
 
     return sm.Matrix(M)
 
-def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
+#def constructBlochHamiltonian(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
+def makeBlochOperators(gsEnergies, esEnergies, osc_strengths=1, T1_opt=-
                               1, br_ratio=0, decay_rates=None, coh_decay_rates=0):
     """Construct a parameterised Hamiltonian and collapse operators for driven
     transitions between a ground state manifold with energy splittings

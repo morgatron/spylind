@@ -1,5 +1,5 @@
 # List required packages in this file, one per line.
-tensorflow>=2.1,<2.3
+# tensorflow>=2.1,<2.3
 numpy
 scipy
 sympy
