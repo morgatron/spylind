@@ -41,6 +41,8 @@ from scipy import integrate
 from itertools import chain
 from collections.abc import Mapping
 
+TF_DTYPE= 'float64'
+
 
 tf = None
 
@@ -293,6 +295,7 @@ class ODESolver(object):
             import tensorflow
             global tf
             tf = tensorflow
+            tf.keras.backend.set_floatx(TF_DTYPE) # Presumably can get more speed, especially on a GPU, 
 
     @staticmethod
     def sort_symbols(eqD):
@@ -514,7 +517,7 @@ class ODESolver(object):
             preShaped_dimAxes = [dAx.reshape(*(k * [1] + [dAx.size] + (len(self.dimAxes) - k - 1) * [1]))
                                  for k, dAx in enumerate(self.dimAxes)]
             d_dtF = sm.lambdify(input_syms, rhs, modules="numpy")
-            if bForceStateDimensions:
+            if bForceStateDimensions: #Useful if the included functions don't always return a correctly shaped output
                 d_dtF0 = d_dtF
                 d_dtF = lambda *args: [np.broadcast_to(out, self.dim_shape)
                                        for out in d_dtF0(*args)]
@@ -535,55 +538,60 @@ class ODESolver(object):
                       state_dep_f=tuple(state_dep_f), t_dep_f=tuple(t_dep_f)):
                 state = unflatten(cur_state_flat)
                 driving_vals = [f(t) for f in t_dep_f]
-                if t > 10:
-                    pass
-                    # pdb.set_trace()
                 state_dep_vals = [f(t, dimAxes, state, driving_vals)
                                   for f in state_dep_f]
                 d_dt_prealloc[:] = d_dtF(
                     t, *dimAxes, *state, *driving_vals, *state_dep_vals)
                 return flatten(d_dt_prealloc)
         else:  # Tensorflow it...
+            #preShaped_dimAxes = tf.constant([dAx.reshape(*(k * [1] + [dAx.size] + (len(self.dimAxes) - k - 1) * [1]))
+            #                                 for k, dAx in enumerate(self.dimAxes)], dtype=tf.complex128)
             preShaped_dimAxes = tf.constant([dAx.reshape(*(k * [1] + [dAx.size] + (len(self.dimAxes) - k - 1) * [1]))
-                                             for k, dAx in enumerate(self.dimAxes)], dtype=tf.complex128)
+                                             for k, dAx in enumerate(self.dimAxes)], dtype=TF_DTYPE)
             d_dtF = sm.lambdify(input_syms, rhs, modules=[
-                                "tensorflow", {'conjugate': tf.math.conj}])
+                                "tensorflow", {'conjugate': tf.math.conj}]) #Should probably not need the 'conjugate' here
             d_dtF = tf.function(d_dtF, experimental_compile=True,
                                 experimental_relax_shapes=True)
 
             def flatten_state(state): return tf.reshape(
-                state, [-1])  # .reshape(-1)
+                state, [self.sim_size])  # .reshape(-1)
 
             def unflatten_state(
                 state, shape=self.state_shape): return tf.reshape(state, shape)
             # def call_d_dtF(t, dimAxes, state, driving_vals, state_dep_vals):
             #    return d_dtF(t, *dimAxes, *tf.unstack(state), *driving_vals, *state_dep_vals)
 
+            @tf.function
+            def tf_driving_F(t):
+                return tf.stack([f(t) for f in t_dep_f ]) 
+            @tf.function
+            def tf_state_dep_F(t, state, driving_vals):
+                return tf.stack([f(t, preShaped_dimAxes, state, driving_vals) for f in state_dep_f ]) 
+
             @tf.function(experimental_compile=True, experimental_relax_shapes=True)
             def dy_dt(
                 t,
                 cur_state_flat,
                 dimAxes=preShaped_dimAxes,
-                Npars=self.Npars,
-                state_shape=tuple(
-                    self.state_shape),
                 d_dtF=d_dtF,
                 flatten=flatten_state,
                 unflatten=unflatten_state,
-                state_dep_f=tuple(state_dep_f),
-                t_dep_f0=tf.function(
-                    t_dep_f[0],
-                    experimental_compile=True),
-                sim_size=self.sim_size,
-                astate=np.ones(
-                    self.dim_shape,
-                    dtype='c16')):
-                state = tf.reshape(cur_state_flat, state_shape)
-                E = tf.cast(t_dep_f0(t), dtype=tf.complex128)
+                state_dep_f= tf_state_dep_F,
+                driving_f = tf_driving_F,
+                                ):
+                #driving_vals = [f(t) for f in t_dep_f]
+                #state = tf.reshape(cur_state_flat, state_shape)
+                state = unflatten_state(cur_state_flat)
+                driving_vals = driving_f(t)
+                state_dep_vals = state_dep_f(t, state, driving_vals)
+                d_dt_prealloc[:] = d_dtF(
+                    t, *tf.unstack(dimAxes), *tf.unstack(state), *tf.unstack(driving_vals), *tf.unstack(state_dep_vals) )
 
-                d_dt_prealloc = d_dtF(tf.cast(t, dtype=tf.complex128),
-                                      *tf.unstack(dimAxes), *tf.unstack(state), E)
-                return tf.reshape(d_dt_prealloc, [sim_size])
+
+                #d_dt_prealloc = d_dtF(tf.cast(t, dtype=tf.complex128),
+                #                      *tf.unstack(dimAxes), *tf.unstack(state), E)
+                return flatten_state(d_dt_prealloc)
+                #return tf.reshape(d_dt_prealloc, [sim_size])
 
         self._d_dtF = d_dtF
         self.d_dt_fast = dy_dt
