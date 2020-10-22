@@ -636,8 +636,10 @@ class ODESolver(object):
         elif self.backend == 'tensorflow':
             y_init = tf.constant(self.flatten_state(
                 self.par0), dtype=tf.complex128)
-            res = tfp.math.ode.DormandPrince().solve(self.d_dt_fast, 0, y_init,
-                                                     solution_times=tSteps)
+            tSteps_T = tf.convert_to_tensor(tSteps)
+            sol = odeint(Lambda(p0), y_init, tSteps_T, method='dopri5')
+            #res = tfp.math.ode.DormandPrince().solve(self.d_dt_fast, 0, y_init,
+            #                                         solution_times=tSteps)
             return res
         else:
             print("Unrecognised backend:", self.backend)
