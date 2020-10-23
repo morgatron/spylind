@@ -615,7 +615,7 @@ class ODESolver(object):
             # r.set_integrator('zvode', method='bdf',max_step=max_step_size, atol=1e-12, rtol=1e-6)#,order=5) # or adams
             #par0=self._pack(self.params.initial.P, self.params.initial.w, self.params.initial.pop)
             self.clearOutput()
-            self.integrateObject = r
+            self.integrateObject = r # useful to keep this for debugging
             if tSteps[0]==0:
                 tSteps= tSteps[1:]
                 cur_state_flat = self.flatten_state(self.par0)
@@ -635,9 +635,20 @@ class ODESolver(object):
             return np.array(self.outputL)
         elif self.backend == 'tensorflow':
             y_init = tf.constant(self.flatten_state(
-                self.par0), dtype=tf.complex128)
+                self.par0), dtype=TF_DTYPE)
             tSteps_T = tf.convert_to_tensor(tSteps)
-            sol = odeint(Lambda(p0), y_init, tSteps_T, method='dopri5')
+            class TFdy_dt(tf.keras.Model):
+                def __init__(self, pars,f): #pars are parameters to the ode
+                    self.pars=pars
+                    self.Nevals = tf.Variable(0)#tf.convert_to_tensor(0, dtype=tf.int64)
+                    self.f = tf.function(f)
+                    super().__init__()
+                @tf.function
+                def call(self, t, z):
+                    self.Nevals.assign_add(1)
+                    return self.f(t,z,self.pars)
+            tf_model = TFdy_dt(f=self.d_dt_fast)
+            sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method='dopri5')
             #res = tfp.math.ode.DormandPrince().solve(self.d_dt_fast, 0, y_init,
             #                                         solution_times=tSteps)
             return res
