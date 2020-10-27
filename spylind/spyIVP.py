@@ -37,14 +37,16 @@ import pdb
 from munch import Munch, munchify
 
 from scipy import integrate
-#import tensorflow as tf
+import tensorflow as tf
+import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
 
 TF_DTYPE= 'float64'
+tf.keras.backend.set_floatx(TF_DTYPE) # Presumably can get more speed, especially on a GPU, 
 
 
-tf = None
+#tf = None
 
 def list_diff(first, second):
     second = set(second)
@@ -218,6 +220,142 @@ def realify(f, which_complex_in=[], which_complex_out=[]):
         return fin_output
     return wrap_func
 
+
+
+class D_Dt_Fast_TF():
+    """ 
+    attributes:
+    * dimAxes
+    * state_shape
+    * Npars
+    * flatten
+    * unflatten
+    * d_dt
+    """
+    def __init__(self, tSym, dimSyms, dimAxes, eqD, t_dep_FD, state_dep_FD, bForceStateDimensions = False, dtype=tf.float64):
+        state_dep_syms = list(state_dep_FD.keys())
+        t_dep_syms = list(t_dep_FD.keys())
+        indep_syms = t_dep_syms + state_dep_syms
+        state_syms = list(eqD.keys())
+        rhs = list(eqD.values())
+
+        dim_shape = tuple([len(ax) for ax in dimAxes])
+        state_shape = tuple([len(eqD), *dim_shape])
+
+        input_syms = [tSym] + dimSyms + \
+            state_syms + t_dep_syms + state_dep_syms
+        self.eq = Munch(lhs=input_syms, rhs=rhs)
+        d_dt_lam = sm.lambdify(input_syms, rhs, modules=[
+                            "tensorflow", {'conjugate': tf.math.conj}]) #Should probably not need the 'conjugate' here
+        d_dt_lam = tf.function(d_dt_lam, experimental_compile=True)
+
+        self.d_dt_lam = d_dt_lam
+        self.preShaped_dimAxes = [dAx.reshape(*(k * [1] + [dAx.size] + (len(dimAxes) - k - 1) * [1]))
+                                for k, dAx in enumerate(dimAxes)]
+        self.preShaped_dimAxes = tf.convert_to_tensor(self.preShaped_dimAxes, dtype = TF_DTYPE)
+        self.dtype = dtype
+        self.state_dep_f = list(state_dep_FD.values())
+        self.t_dep_f = list(t_dep_FD.values())
+        #self.state_shape = tf.convert_to_tensor(state_shape, dtype=tf.int32)
+        self.state_shape = state_shape
+        self.dim_shape = dim_shape
+        #self.sim_size = np.product(state_shape)
+        #super().__init__()
+
+    #@tf.function
+    def _d_dt(self, t, state, driving_vals, state_dep_vals):
+        resL = self.d_dt_lam(t, *tf.unstack(self.preShaped_dimAxes), *tf.unstack(state), *tf.unstack(driving_vals), *tf.unstack(state_dep_vals) )
+        resL = [tf.broadcast_to(tf.cast(res, TF_DTYPE), self.dim_shape) for res in resL]
+        return tf.stack(resL);
+
+    #@tf.function
+    def _calc_driving_vals(self, t):
+        return tf.stack([f(t) for f in self.t_dep_f ]) 
+    #@tf.function
+    def _calc_state_dep_vals(self, t, state, driving_vals):
+        return tf.stack([f(t, self.preShaped_dimAxes, state, driving_vals) for f in self.state_dep_f ]) 
+        
+    @tf.function
+    def __call__(self, t, cur_state_flat):
+        state = self._unflatten_state(cur_state_flat)
+        driving_vals = self._calc_driving_vals(t)
+        state_dep_vals = self._calc_state_dep_vals(t, state, driving_vals)
+        result =self._d_dt(t, state, driving_vals, state_dep_vals)
+        #return cur_state_flat
+        return self._flatten_state(result)
+        
+    def _flatten_state(self, state): 
+        #tf.print(state)
+        return tf.reshape(state, (-1,) ) # .reshape(-1)
+
+    def _unflatten_state(self, state):
+        return tf.reshape(state, self.state_shape)
+
+class D_Dt_Fast_numpy:
+    """ 
+
+    attributes:
+    * dimAxes
+    * state_shape
+    * Npars
+    * flatten
+    * unflatten
+    * d_dt
+    """
+    def __init__(self, tSym, dimSyms, dimAxes, eqD, t_dep_FD, state_dep_FD, bForceStateDimensions = False, dtype=np.complex128):
+        state_dep_syms = list(state_dep_FD.keys())
+        t_dep_syms = list(t_dep_FD.keys())
+        indep_syms = t_dep_syms + state_dep_syms
+        state_syms = list(eqD.keys())
+        rhs = list(eqD.values())
+
+        dim_shape = tuple([len(ax) for ax in dimAxes])
+        state_shape = tuple([len(eqD), *dim_shape])
+
+        input_syms = [tSym] + dimSyms + \
+            state_syms + t_dep_syms + state_dep_syms
+        self.eq = Munch(lhs=input_syms, rhs=rhs)
+
+        d_dt_lam = sm.lambdify(input_syms, rhs, modules="numpy")
+        if bForceStateDimensions: #Useful if the included functions don't always return a correctly shaped output
+            d_dtF0 = d_dt_lam
+            d_dt_lam = lambda *args: [np.broadcast_to(out, dim_shape)
+                                    for out in d_dtF0(*args)]
+
+        self.d_dt_lam = d_dt_lam
+        self.d_dt_prealloc=np.zeros(
+            state_shape, dtype= dtype)
+        self.dimAxes = [dAx.reshape(*(k * [1] + [dAx.size] + (len(dimAxes) - k - 1) * [1]))
+                                for k, dAx in enumerate(dimAxes)]
+        self.dtype = dtype
+        self.state_dep_f = list(state_dep_FD.values())
+        self.t_dep_f = list(t_dep_FD.values())
+        self.state_shape = state_shape
+
+    def _d_dt(self, t, state, driving_vals, state_dep_vals):
+        return self.d_dt_lam(t, *self.dimAxes, *state, *driving_vals, *state_dep_vals)
+
+    def _calc_driving_vals(self, t):
+        driving_vals = [f(t) for f in self.t_dep_f]
+        return driving_vals
+    def _calc_state_dep_vals(self, t, state, driving_vals):
+        state_dep_vals = [f(t, self.dimAxes, state, driving_vals)
+                            for f in self.state_dep_f]
+        return state_dep_vals
+        
+    def __call__(self, t, cur_state_flat):
+        state = self._unflatten_state(cur_state_flat)
+        driving_vals = self._calc_driving_vals(t)
+        state_dep_vals = self._calc_state_dep_vals(t, state, driving_vals)
+        self.d_dt_prealloc[:] = self._d_dt(t, state, driving_vals, state_dep_vals)
+        return self._flatten_state(self.d_dt_prealloc)
+        
+
+    def _flatten_state(self, state):
+        return state.reshape(-1)
+    def _unflatten_state(self, flat_state):
+        return flat_state.reshape(*self.state_shape)
+        
 
 class ODESolver(object):
     """
@@ -482,8 +620,13 @@ class ODESolver(object):
         # So for now: We can assume that all variables stay in the same order:
         # t, *dims, *state, *driving
         #to_simD = {sym:dy_dtD[sym] for sym in propagated_state_syms}
-        self.d_dt_fast = self.make_d_dt_fast(dy_dtD, self.tDepFD,
-                                             self.stateDepFD, bForceStateDimensions=bForceStateDimensions)
+        #self.d_dt_fast = self.make_d_dt_fast(dy_dtD, self.tDepFD,
+                                             #self.stateDepFD, bForceStateDimensions=bForceStateDimensions)
+        if self.backend=="numpy":
+            D_Dt_Fast = D_Dt_Fast_numpy
+        else:
+            D_Dt_Fast = D_Dt_Fast_TF
+        self.d_dt_fast = D_Dt_Fast(self.tSym, self.dimSyms, self.dimAxes, self.dy_dtD, self.tDepFD, self.stateDepFD, bForceStateDimensions=bForceStateDimensions, dtype = self.default_dtype)
 
         if self._online_process_func is None:
             self.set_online_processing()
@@ -603,12 +746,14 @@ class ODESolver(object):
     def unflatten_state(self, flat_state):
         return flat_state.reshape(*self.state_shape)
 
-    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6):
+    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5'):
         if self.backend == 'numpy':
             r = integrate.ode(self.d_dt_fast)
-            if self.bDecompose_to_re_im:
+            if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
                 r.set_integrator('vode', method='adams', max_step=max_step_size,
                                  atol=atol, rtol=rtol)  # ,order=5) # or adams
+                #r.set_integrator('dopri5', max_step=max_step_size,
+                #                atol=atol, rtol=rtol)  # ,order=5) # or adams
             else:
                 r.set_integrator('zvode', method='adams', max_step=max_step_size,
                                  atol=atol, rtol=rtol)  # ,order=5) # or adams
@@ -634,24 +779,28 @@ class ODESolver(object):
                 self._online_process_func(cur_state_flat)
             return np.array(self.outputL)
         elif self.backend == 'tensorflow':
+            #with tf.GradientTape() as g:
+            #        g.watch(to_watch)
             y_init = tf.constant(self.flatten_state(
                 self.par0), dtype=TF_DTYPE)
             tSteps_T = tf.convert_to_tensor(tSteps)
             class TFdy_dt(tf.keras.Model):
-                def __init__(self, pars,f): #pars are parameters to the ode
-                    self.pars=pars
+                def __init__(self, f):
                     self.Nevals = tf.Variable(0)#tf.convert_to_tensor(0, dtype=tf.int64)
                     self.f = tf.function(f)
                     super().__init__()
                 @tf.function
-                def call(self, t, z):
+                def call(self, t, state_flat):
                     self.Nevals.assign_add(1)
-                    return self.f(t,z,self.pars)
-            tf_model = TFdy_dt(f=self.d_dt_fast)
-            sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method='dopri5')
+                    return self.f(t,state_flat)
+            #dt = self.d_dt_fast
+            #dt(0.1, y_init)
+            tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
+            sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol)
+            #dErr_dIn = g.gradient(err_func, params )
+            return tf.reshape(sol, (sol.shape[0], *self.state_shape))
             #res = tfp.math.ode.DormandPrince().solve(self.d_dt_fast, 0, y_init,
             #                                         solution_times=tSteps)
-            return res
         else:
             print("Unrecognised backend:", self.backend)
 
