@@ -797,6 +797,7 @@ class ODESolver(object):
             #dt(0.1, y_init)
             tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
             sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol)
+            print("Nevals: {}".format(tf_model.Nevals))
             #dErr_dIn = g.gradient(err_func, params )
             return tf.reshape(sol, (sol.shape[0], *self.state_shape))
             #res = tfp.math.ode.DormandPrince().solve(self.d_dt_fast, 0, y_init,
