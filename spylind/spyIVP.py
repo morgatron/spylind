@@ -222,7 +222,7 @@ def realify(f, which_complex_in=[], which_complex_out=[]):
 
 
 
-class D_Dt_Fast_TF():
+class D_Dt_Fast_TF:
     """ 
     attributes:
     * dimAxes
@@ -746,7 +746,7 @@ class ODESolver(object):
     def unflatten_state(self, flat_state):
         return flat_state.reshape(*self.state_shape)
 
-    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5'):
+    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5', solver_options={}):
         if self.backend == 'numpy':
             r = integrate.ode(self.d_dt_fast)
             if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
@@ -796,7 +796,7 @@ class ODESolver(object):
             #dt = self.d_dt_fast
             #dt(0.1, y_init)
             tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
-            sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol)
+            sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol, options=solver_options)
             print("Nevals: {}".format(tf_model.Nevals))
             #dErr_dIn = g.gradient(err_func, params )
             return tf.reshape(sol, (sol.shape[0], *self.state_shape))
