@@ -247,7 +247,7 @@ class D_Dt_Fast_TF:
         self.eq = Munch(lhs=input_syms, rhs=rhs)
         d_dt_lam = sm.lambdify(input_syms, rhs, modules=[
                             "tensorflow", {'conjugate': tf.math.conj}]) #Should probably not need the 'conjugate' here
-        d_dt_lam = tf.function(d_dt_lam, experimental_compile=True)
+        d_dt_lam = tf.function(d_dt_lam, experimental_compile=False) #<- experimental_compile is a guess
 
         self.d_dt_lam = d_dt_lam
         self.preShaped_dimAxes = [dAx.reshape(*(k * [1] + [dAx.size] + (len(dimAxes) - k - 1) * [1]))
