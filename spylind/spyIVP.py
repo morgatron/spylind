@@ -38,6 +38,7 @@ from munch import Munch, munchify
 
 from scipy import integrate
 import tensorflow as tf
+import tensorflow_probability as tfp
 import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
@@ -144,8 +145,7 @@ def flatten_inputs(f, nDims, nStates, nDriving):
         return f(t, dimAxs, state, driving)
     return wrapped
 
-
-def realify(f, which_complex_in=[], which_complex_out=[]):
+def realify_np(f, which_complex_in=[], which_complex_out=[]):
     """ Take a function with a mixture of real and complex numbers and make
     it a 'real' function by expanding the complex arguments and complex outputs
     to real/imaginary components
@@ -175,8 +175,8 @@ def realify(f, which_complex_in=[], which_complex_out=[]):
             return c_o1, r_o2
     >>> f_in(1, 1+1j, 0.5+3j, 5)
 
-    We call realify as
-    >>> f_out = realify(f_in, which_complex_in = [0,1,1, 0],
+    We call realify_np as
+    >>> f_out = realify_np(f_in, which_complex_in = [0,1,1, 0],
                             which_complex_out = [1,0])
     >>> f_out(1, 1, 1, 0.5, 3, 5)
     That is, the resulting f_out has signature:
@@ -221,7 +221,6 @@ def realify(f, which_complex_in=[], which_complex_out=[]):
     return wrap_func
 
 
-
 class D_Dt_Fast_TF:
     """ 
     attributes:
@@ -255,7 +254,8 @@ class D_Dt_Fast_TF:
         self.preShaped_dimAxes = tf.convert_to_tensor(self.preShaped_dimAxes, dtype = TF_DTYPE)
         self.dtype = dtype
         self.state_dep_f = list(state_dep_FD.values())
-        self.t_dep_f = list(t_dep_FD.values())
+        #self.t_dep_f = list(t_dep_FD.values())
+        self.t_dep_FD = t_dep_FD
         #self.state_shape = tf.convert_to_tensor(state_shape, dtype=tf.int32)
         self.state_shape = state_shape
         self.dim_shape = dim_shape
@@ -269,16 +269,22 @@ class D_Dt_Fast_TF:
         return tf.stack(resL);
 
     #@tf.function
-    def _calc_driving_vals(self, t):
-        return tf.stack([f(t) for f in self.t_dep_f ]) 
+    def _calc_driving_vals(self, t, **driving_params):
+        if not driving_params:
+            return tf.stack([f(t) for f in self.t_dep_FD.values() ]) 
+        else:
+            return tf.stack([f(t, *driving_params[str(sym) ]) for sym,f in self.t_dep_FD.items() ]) 
+
     #@tf.function
     def _calc_state_dep_vals(self, t, state, driving_vals):
         return tf.stack([f(t, self.preShaped_dimAxes, state, driving_vals) for f in self.state_dep_f ]) 
         
     @tf.function
-    def __call__(self, t, cur_state_flat):
+    def __call__(self, t, cur_state_flat, **driving_params):
+        if 'training' in driving_params:
+            driving_params.pop('training')
         state = self._unflatten_state(cur_state_flat)
-        driving_vals = self._calc_driving_vals(t)
+        driving_vals = self._calc_driving_vals(t, **driving_params)
         state_dep_vals = self._calc_state_dep_vals(t, state, driving_vals)
         result =self._d_dt(t, state, driving_vals, state_dep_vals)
         #return cur_state_flat
@@ -431,6 +437,7 @@ class ODESolver(object):
             self.state_func_sig))
         if self.backend == 'tensorflow':
             import tensorflow
+            import tensorflow_probability as tfp
             global tf
             tf = tensorflow
             tf.keras.backend.set_floatx(TF_DTYPE) # Presumably can get more speed, especially on a GPU, 
@@ -526,7 +533,9 @@ class ODESolver(object):
         subsD = {}
         for sym in list(tDepFD.keys()):
             F = tDepFD[sym]
-            if not callable(F):
+            #if is_instance(F, RT): #RT_arg
+            #    pass
+            if not callable(F): #Then maybe it's a symbollic thing?
                 subsD[sym] = F
                 tDepFD.pop(sym)
         if self.bDecompose_to_re_im:  # Split into real and imagiunary bits
@@ -569,7 +578,7 @@ class ODESolver(object):
                 F_flat = flatten_inputs(F, nDims, nStates, nDriving)
                 which_complex_out = [0 if sym.is_real else 1]
                 # F_ri_flat takes flattened real inputs
-                F_ri_flat = realify(
+                F_ri_flat = realify_np(
                     F_flat, which_complex_in, which_complex_out)
                 def F_ri(t, dimAxes, states, driving): return F_ri_flat(
                     t, *dimAxes, *states, *driving)
@@ -746,7 +755,7 @@ class ODESolver(object):
     def unflatten_state(self, flat_state):
         return flat_state.reshape(*self.state_shape)
 
-    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5', solver_options={}):
+    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5', solver_options={}, driving_argsD=None):
         if self.backend == 'numpy':
             r = integrate.ode(self.d_dt_fast)
             if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
@@ -790,13 +799,15 @@ class ODESolver(object):
                     self.f = tf.function(f)
                     super().__init__()
                 @tf.function
-                def call(self, t, state_flat):
+                def call(self, t, state_flat, **driving_params):
                     self.Nevals.assign_add(1)
-                    return self.f(t,state_flat)
+                    return self.f(t,state_flat, **driving_params)
             #dt = self.d_dt_fast
             #dt(0.1, y_init)
             tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
-            sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol, options=solver_options)
+            #sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol, options=solver_options)
+            results_obj =tfp.math.ode.DormandPrince().solve(tf_model, tSteps_T[0], y_init, solution_times=tSteps_T, constants=driving_argsD)
+            sol = results_obj.states
             print("Nevals: {}".format(tf_model.Nevals))
             #dErr_dIn = g.gradient(err_func, params )
             return tf.reshape(sol, (sol.shape[0], *self.state_shape))
@@ -833,81 +844,7 @@ class ODESolver(object):
         self._online_process_func = f2
 
 
-# THIS DOESN"T BELONG HERE
-# def get_pol_func(Hint, lineShape):
-def calcE_FWonly_SD(state, EinFwNow, lineShape, calc_polF, Ncoh):
-    """Just the simplest case, the moving-frame approx.
-    """
-    coh, diag = ...
-    pol = (calc_polF(*coh) * lineShape).sum(axis=-1)
-    Etot = np.cumsum(pol)  # * excArrs.fwMode.conj())
-    return Etot
 
-# FOR REFERENCE ONLY
-
-
-# Is t an independent symbol? Only if it appears explicitly I guess
-def get_dydt_from_dict(tSym, eqD, indepSubD={}, bIncludeT=True, modules="numpy", bSimplifyRHS=False):
-    """Take a dictionary of symbol:expresson pairs, and return a function for fast numerical analysis,
-    with the required input parameters also returned
-
-    indepSubD should have form e.g. {E: cos(w*t), w:1, E2: lambda t: 2*t}. That is, the value can be a
-    sympy expression or a python function.
-
-    Variables used:
-        depSyms: Dependent symbols. These correspond to the keys of the input dictionary
-        indepSyms: Independent symbols. These are values that aren't propagated. They're either input at each
-            time, or they're given in functional form in indepSubD to be calculated internally.
-
-
-    """
-
-    # DO SUBSTITUTION FROM indepSyms first
-    if 1:
-        indepFuncD = {sym: indepSubD.pop(sym)
-                      for sym, expr in list(indepSubD.items()) if callable(expr)}
-        subsD = {sym: sm.sympify(indepSubD.pop(sym))
-                 for sym, expr in list(indepSubD.items())}
-
-        # if t not in freeSymbols
-        # Function to evaluate elements without a symbollic implementation:
-
-        def curIndepVarsF(t):
-            return [f(t) for f in indepFuncD.values()]
-        ######################
-
-    # Get rid of redundant, i.e. stationary variables
-    # {key:val for key,val in list(eqD.items()) if val!=0 } #Non-stationary equations
-    eqD_1 = eqD
-    eqD_1 = {key: val.subs(subsD) for key, val in eqD_1.items()}
-    stationarySyms = [key for key, val in eqD_1.items() if val == 0]
-
-    depSymbs = list(eqD_1.keys())  # >..  #LHS
-    rhs = list(eqD_1.values())
-    if bSimplifyRHS:
-        rhs = [sm.simplify(e) for e in rhs]
-    freeSyms0 = sm.Matrix(rhs).free_symbols
-    stateSyms = depSymbs
-    #stateSyms = [sym for sym in depSymbs if sym in freeSyms0 ]
-    intIndepSyms = list(indepFuncD.keys())
-    extIndepSyms = [
-        sym for sym in freeSyms0 if sym not in stateSyms and sym not in intIndepSyms and sym != tSym]
-    lamInputSyms = [tSym] + intIndepSyms + extIndepSyms + stateSyms
-    # freeSyms = oset( depSymbs + list(sm.Matrix(rhs.free_symbols)) ) # want to keep order here
-    # Should now be a list of [dep elements, independent elements ]
-    # actually, ideally we'd put 't' first if it exists.
-
-    # could also split into real and ind imaginary parts
-    d_dtF = sm.lambdify(tuple(lamInputSyms), tuple(rhs), modules=modules)
-
-    def dy_dt(t, curState, indepInputs=[]):
-        # the current value of t might be included in here?
-        intIndepVals = curIndepVarsF(t)
-
-        return d_dtF(t, *intIndepVals, *indepInputs, *curState)
-
-    # extInputSyms = stateSyms +
-    return dy_dt, stateSyms, extIndepSyms
 
 
 if __name__ == "__main__":

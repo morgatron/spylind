@@ -407,6 +407,14 @@ try:
 except ModuleNotFoundError:
     print("No pretty printing stuff (probably because no Pandas)")
 
+def calcE_FWonly_SD(state, EinFwNow, lineShape, calc_polF, Ncoh):
+    """Just the simplest case, the moving-frame approx.
+    """
+    coh, diag = ...
+    pol = (calc_polF(*coh) * lineShape).sum(axis=-1)
+    Etot = np.cumsum(pol)  # * excArrs.fwMode.conj())
+    return Etot
+
 if __name__ == "__main__":
     # Tests
 
