@@ -363,20 +363,6 @@ class D_Dt_Fast_numpy:
         return flat_state.reshape(*self.state_shape)
         
 
-class TFSim:
-    d_dt = None
-    online_processing = None
-    def __init__(self):
-        self.d_dt = 
-        pass
-    def set_params(self):
-        pass
-    def integrate(self, tSteps, params):
-        self.set_params(params)
-        pass
-     
-
-
 class ODESolver(object):
     """
     """
@@ -769,7 +755,12 @@ class ODESolver(object):
     def unflatten_state(self, flat_state):
         return flat_state.reshape(*self.state_shape)
 
-    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5', solver_options={}, driving_argsD=None):
+    @tf.function(experimental_compile=False)
+    def integrate_tf(self, tSteps, yInit, **kwargs):
+            results_obj =tfp.math.ode.DormandPrince(**kwargs).solve(self.d_dt_fast.__call__, tSteps[0], yInit, solution_times=tSteps)
+            return results_obj 
+
+    def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5', solver_options={}, grad_pair = [], **kwargs):
         if self.backend == 'numpy':
             r = integrate.ode(self.d_dt_fast)
             if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
@@ -802,29 +793,36 @@ class ODESolver(object):
                 self._online_process_func(cur_state_flat)
             return np.array(self.outputL)
         elif self.backend == 'tensorflow':
-            #with tf.GradientTape() as g:
-            #        g.watch(to_watch)
-            y_init = tf.constant(self.flatten_state(
+            y_init = tf.convert_to_tensor(self.flatten_state(
                 self.par0), dtype=TF_DTYPE)
-            tSteps_T = tf.convert_to_tensor(tSteps)
-            class TFdy_dt(tf.keras.Model):
-                def __init__(self, f):
-                    self.Nevals = tf.Variable(0)#tf.convert_to_tensor(0, dtype=tf.int64)
-                    self.f = tf.function(f)
-                    super().__init__()
-                @tf.function
-                def call(self, t, state_flat, **driving_params):
-                    self.Nevals.assign_add(1)
-                    return self.f(t,state_flat, **driving_params)
-            #dt = self.d_dt_fast
-            #dt(0.1, y_init)
-            tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
+            tSteps = tf.convert_to_tensor(self.flatten_state(
+                tSteps), dtype=TF_DTYPE)
+            if grad_pair:
+                if len (grad_pair) != 2:
+                    raise ValueError("grad_pair must be length 2: a target (loss funciton) and a list of variables to differentiaite w.r.t")
+                loss = grad_pair[0]
+                with tf.GradientTape(watch_accessed_variables=False, persistent=False) as tape:
+                    for var in grad_pair[1]:
+                        tape.watch(var)
+                    results_obj = self.integrate_tf(tSteps, y_init, **kwargs)
+                    states = results_obj.states
+                    states_unflat= tf.reshape(results_obj.states, (states.shape[0], *self.state_shape))
+                    loss = grad_pair[0](states_unflat)
+                gradients = tape.gradient(loss, grad_pair[1])
+
+                return states_unflat, loss, gradients
+            else:
+                results_obj = self.integrate_tf(tSteps, y_init,**kwargs)
+                print("num function evaluations: {}".format(results_obj.diagnostics.num_ode_fn_evaluations))
+                states_unflat= tf.reshape(results_obj.states, (results_obj.states.shape[0], *self.state_shape))
+                return states_unflat#, results_obj
+            ##dt = self.d_dt_fast
+            ##dt(0.1, y_init)
+            #tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
             #sol = tfdiffeq.odeint(tf_model, y_init, tSteps_T, method=method, atol=atol, rtol=rtol, options=solver_options)
-            results_obj =tfp.math.ode.DormandPrince().solve(tf_model, tSteps_T[0], y_init, solution_times=tSteps_T, constants=driving_argsD)
-            sol = results_obj.states
-            print("Nevals: {}".format(tf_model.Nevals))
+            #self.integration_diag = results_obj.diagnostics
+            #print("Nevals: {}".format(tf_model.Nevals))
             #dErr_dIn = g.gradient(err_func, params )
-            return tf.reshape(sol, (sol.shape[0], *self.state_shape))
             #res = tfp.math.ode.DormandPrince().solve(self.d_dt_fast, 0, y_init,
             #                                         solution_times=tSteps)
         else:
