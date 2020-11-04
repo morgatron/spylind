@@ -363,6 +363,20 @@ class D_Dt_Fast_numpy:
         return flat_state.reshape(*self.state_shape)
         
 
+class TFSim:
+    d_dt = None
+    online_processing = None
+    def __init__(self):
+        self.d_dt = 
+        pass
+    def set_params(self):
+        pass
+    def integrate(self, tSteps, params):
+        self.set_params(params)
+        pass
+     
+
+
 class ODESolver(object):
     """
     """
