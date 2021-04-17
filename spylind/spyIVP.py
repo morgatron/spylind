@@ -757,8 +757,29 @@ class ODESolver(object):
 
     @tf.function(experimental_compile=False)
     def integrate_tf(self, tSteps, yInit, **kwargs):
-            results_obj =tfp.math.ode.DormandPrince(**kwargs).solve(self.d_dt_fast.__call__, tSteps[0], yInit, solution_times=tSteps)
+        if 1:
+            if 0:
+                results_obj =tfp.math.ode.DormandPrince(**kwargs).solve(self.d_dt_fast.__call__, tSteps[0], yInit, solution_times=tSteps)
+            else:
+                if 'step_size' not in kwargs:
+                    kwargs['step_size']= tSteps[1]-tSteps[0]
+                results_obj =tfp.math.ode.FixedStep(**kwargs).solve(self.d_dt_fast.__call__, tSteps[0], yInit, solution_times=tSteps)
             return results_obj 
+        else:
+            class TFdy_dt(tf.keras.Model):
+                def __init__(self, f):
+                    self.Nevals = tf.Variable(0)#tf.convert_to_tensor(0, dtype=tf.int64)
+                    self.f = tf.function(f)
+                    super().__init__()
+                @tf.function
+                def call(self, t, state_flat):
+                    self.Nevals.assign_add(1)
+                    return self.f(t,state_flat)
+            tf_model = TFdy_dt(f=self.d_dt_fast.__call__)
+            sol = tfdiffeq.odeint(self, y_init, tSteps_T, **kwargs)
+            #method=method, atol=atol, rtol=rtol, options=solver_options)
+            return sol
+
 
     def integrate(self, tSteps, max_step_size=.1, atol=1e-12, rtol=1e-6, method = 'dopri5', solver_options={}, grad_pair = [], **kwargs):
         if self.backend == 'numpy':
