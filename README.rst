@@ -24,6 +24,6 @@ Most 'docs' are in the example notebooks.
 
 Features
 --------
-
+* Incomplete!
 * TODO
 * Major todo: solidify interface with Tensorflow and finding of gradients.
