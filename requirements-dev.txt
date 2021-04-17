@@ -13,3 +13,5 @@ recommonmark
 numpydoc
 sphinx-copybutton
 sphinx_rtd_theme
+tensorflow
+

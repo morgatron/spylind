@@ -39,7 +39,7 @@ from munch import Munch, munchify
 from scipy import integrate
 import tensorflow as tf
 import tensorflow_probability as tfp
-import tfdiffeq
+#import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
 
