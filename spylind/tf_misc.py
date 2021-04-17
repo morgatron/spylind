@@ -29,6 +29,34 @@ class InterpolatorMask(tf.keras.Model):
             retVal = tf.reduce_sum(res)
         #tf.print(retVal)
         return retVal
+class InterpolatorMask2(tf.keras.Model):
+    def __init__(self, xOrig, yOrig): #pars are parameters to the ode
+        super().__init__()
+        self.xOrig = tf.constant(tf.convert_to_tensor(xOrig, dtype=tf.float64))
+        self.yOrig = tf.Variable(tf.convert_to_tensor(yOrig, dtype=tf.float64), name='yOrig')
+
+        self.N = xOrig.shape[0]
+        self.dx = xOrig[1]-xOrig[0]
+        self.x0 = xOrig[0]
+        self.xMax = xOrig[-1]
+        self.zero = tf.constant(0, dtype=tf.float64)
+        self.mask = tf.concat([tf.constant([0.5,0.5], dtype='float64'), tf.zeros(xOrig.shape[0]-2, dtype='float64') ], axis=0)
+
+    def set_y(self, yNew):
+        self.yOrig.assign(yNew)
+    def call(self, x):
+        #pdb.set_trace()
+        #ind = tf.math.floormod((x-x0), dx)
+        ind_f = tf.math.floordiv(x-self.x0, self.dx)
+        ind=tf.cast(ind_f, tf.int64)
+        if ind < 0 or ind >= self.N-1:
+            retVal= tf.constant(0., dtype=tf.float64);
+        else:
+            remainder = (x/self.dx- ind_f)
+            #tf.print(remainder)
+            retVal = (1.-remainder)*self.yOrig[ind] + remainder*self.yOrig[ind+1]
+        #tf.print(retVal)
+        return retVal
 
 class InterpolatorMaskArgs(tf.keras.Model):
     def __init__(self, xOrig): #pars are parameters to the ode
