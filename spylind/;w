@@ -35,12 +35,11 @@ import numpy as np
 from numpy import linspace, arange
 import pdb
 from munch import Munch, munchify
+
 from scipy import integrate
 import tensorflow as tf
 import tensorflow_probability as tfp
 from .tfp_fixed_step import FixedStep
-from .import utils as ut
-
 tfp.math.ode.FixedStep = FixedStep
 #import tfdiffeq
 from itertools import chain
@@ -49,78 +48,180 @@ from collections.abc import Mapping
 TF_DTYPE= 'float64'
 tf.keras.backend.set_floatx(TF_DTYPE) # Presumably can get more speed, especially on a GPU, 
 
+
 #tf = None
 
-# These objects are the actual solver, or Model. The plan is they are usually made by the ODEDefinition object. The Model's main job is to be an optimised solver of the problem at hand. It shouldn't have to know anything about the problem dimension. It will often however have access to a function which converts from the model's result space into whatever output is required. This function may be called 'online', ie during the calcuation, or may be used to process the results as a block once it's finished.
+def list_diff(first, second):
+    second = set(second)
+    return [item for item in first if item not in second]
 
-from abc import ABC, abstractmethod
-class Model(ABC):
-    """A wrapper around the actual integrator code, and it's results, to give some common interface. 
-    Keep as thin as possible. Shouldn't have to (directly) know anything about the problem dimension.
 
+def expand_list_to_re_im(sym_list):
+    re_im_out_L = []
+    for sym in sym_list:
+        if sym.is_real:
+            re_im_out_L.append(sym)
+        else:
+            re_im_out_L.append()
+    # all complex symbols
+    complex_syms = [sym for sym in sym_list if not sym.is_real]
+
+
+def expand_to_re_im(eqD, bNumericalRHS=False):  # , indep_syms):
+    """ Take a system of potentially complex symbol:expression pairs and return
+    a similar object with all complex symbols/expressions replaced with their
+    real and imaginary parts.
+
+    The pairs are assumed to be in a dictionary, eqD. Any complex LHS symbols,
+    will result in an extra pair (for real and imaginary parts). It also means replacing
+    any complex RHS symbols by their real and imaginary components.
+
+    Parameters
+    ----------
+    eqD : dict
+        A mapping of symbol:expression pairs
+    bNumericalRHS : bool
+        If True, will assume that the expressions are numbers/arrays
+        of sympy objects.
+    Returns
+    -------
+    real_eqD : the realified map
+    complex_subsD : a mapping from any original complex symbols to their newly
+        defined componentes (e.g. x: x_r + 1j*x_i). The purpose is to be used in
+        substitutions.
+    symbol_mapD : a mapping from old symbols to new ones.
     """
-    tSteps_last_run = None
-    state_at_t0 = None
-    online_process_func = None
+    lhsL = list(eqD.keys())
+    # display(lhsL)
+    rhsL = list(eqD.values())
+    if bNumericalRHS:
+        rhsSyms = []
+    else:
+        rhsSyms = list(sm.Matrix(rhsL).free_symbols)
+    indep_syms = list_diff(rhsSyms, lhsL)
 
-    def __init__(self, d_dt_fast):
-        pass
-    @abstractmethod
-    def integrate(self, tSteps):
-        raise NotImplementedError
+    def expand_sym(sym):
+        if sym.is_real:
+            return sym
+        else:
+            return (sm.symbols(str(sym) + '^r', real=True), sm.symbols(str(sym) + '^i', real=True))
+    symbol_mapD = {sym: expand_sym(sym) for sym in lhsL + indep_syms}
+    complex_subsD = {sym: val[0] + sm.I * val[1]
+                     for sym, val in symbol_mapD.items() if not sym.is_real}
+    # display(complex_subsD) #Replacement map for symbols
 
-    def clearOutput(self):
-        self.outputL = []
+    new_lhsL = []
+    new_rhsL = []
+    for sym, ex in zip(lhsL, rhsL):
+        if bNumericalRHS:
+            rhsRe = np.real(ex)
+            rhsIm = np.imag(ex)
+        else:
+            rhsRe, rhsIm = ex.subs(complex_subsD).as_real_imag()
+            rhsRe = rhsRe.simplify()
+            rhsIm = rhsIm.simplify()
+        new_rhsL.append(rhsRe)
+        # display(sym)
+        if sym.is_real:
+            new_lhsL.append(sym)
+        else:
+            new_lhsL.extend(complex_subsD[sym].as_real_imag())
+            new_rhsL.append(rhsIm)
+    # lhs_sym_mapD
+    return dict(zip(new_lhsL, new_rhsL)), complex_subsD, symbol_mapD
 
-    def continue_to(self, tEnd, dt):
-        tCur = self.scipy_integrator.t
-        if tEnd <= tCur:
-            raise ValueError(f"Already integrated past {tEnd} (tCur is {tCur}")
-        tSteps = np.arange(tCur+dt, tEnd, dt)#tSteps_last_run[-1]
-        return self.integrate(tSteps)
-    def integrate_to(self, tEnd, dt):
-        tSteps = np.arange(0, tEnd, dt)
-        return self.integrate(tSteps)
 
-class ModelNumpy(Model):# Should really be called Scipy, probably!
-    outputL = []
-    def __init__(self, d_dt, state_at_t0, online_processing_func,  name =None, method='adams',atol = 1e-12, rtol=1e-6, max_step=0.1, **kwargs):
-        """this is usually called by setup in ODESys"""
+def flatten_inputs(f, nDims, nStates, nDriving):
+    def wrapped(*args):
+        t = args[0]
+        k = 1
 
-        if name is None:
-            name = 'vode'
-            if np.iscomplexobj(state_at_t0):
-                name = 'zvode'
-        self.d_dt = d_dt
-        self._online_process_func =  online_processing_func
-        self.initial_state = state_at_t0
-        int_obj = integrate.ode(d_dt)
-        #if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
-        int_obj.set_integrator(name, max_step=max_step,
-                             **kwargs)  # ,order=5) # or adams
-        int_obj.set_initial_value(state_at_t0, 0)
-        self.scipy_integrator = int_obj
+        dimAxs = args[k:k + nDims]
+        k += nDims
 
-    def integrate(self, tSteps):
-        I = self.scipy_integrator # useful to keep this for debugging
-        outputL = []
-        if tSteps[0]==I.t: # handle initial. It's a bit messy here. Hopefully can get rid of it
-            tSteps= tSteps[1:]
-            outputL.append(self._online_process_func(I.y))
-            #self._online_process_func(cur_state_flat)
-            print("Not integrating first step (it's just the initial state)")
+        state = args[k:k + nStates]
+        k += nStates
 
-        # Integrate
-        for k, tNext in enumerate(tSteps):
-            if not I.successful():
-                self.lastGoodInd = k - 1
-                print("Integration failed at sim time {}".format(tNext))
-                break
-            #print(I.t, I.y)
-            cur_state_flat = I.integrate(tNext)
-            # probably reshaping, calculating fields etc
-            outputL.append(self._online_process_func(cur_state_flat))
-        return np.array(outputL)
+        driving = args[k:k + nDriving]
+
+        return f(t, dimAxs, state, driving)
+    return wrapped
+
+def realify_np(f, which_complex_in=[], which_complex_out=[]):
+    """ Take a function with a mixture of real and complex numbers and make
+    it a 'real' function by expanding the complex arguments and complex outputs
+    to real/imaginary components
+
+    Parameters
+    -----------
+    f : base function to be 'realified'.
+    which_complex_in : list of boolean values
+        Has same length as number of input arguments to f. A false value denotes
+        that argument position as a real number, a True value indicates complex.
+    which_complex_out : list
+        Same length as number of return values for f. Same format as which_complex_in
+
+    Returns
+    -------
+    wrap_func: A function that takes and returns real numbers only
+
+    Example:
+    Consider a function of 4 parameters, with signature:
+        f_in(r_p1, c_p2, c_p3, r_p4) -> c_o1, r_o2
+    Here the first and fourth parameters
+    are real, and the second and third are complex. It returns 2 numbers, the
+    first of which is complex while the second is purely real.
+    >>> def f_in( r_p1, c_p2, c_p3, r_p4):
+            c_o1 = r_p1 + c_p2.real*c_p3
+            r_o2 = r_p4 + c_p2.imag
+            return c_o1, r_o2
+    >>> f_in(1, 1+1j, 0.5+3j, 5)
+
+    We call realify_np as
+    >>> f_out = realify_np(f_in, which_complex_in = [0,1,1, 0],
+                            which_complex_out = [1,0])
+    >>> f_out(1, 1, 1, 0.5, 3, 5)
+    That is, the resulting f_out has signature:
+            f_out(r_arg1, c_arg2_r, c_arg2_i, c_arg3_r, c_arg3_i, r_arg4)
+                                -> c_out1_r, c_out1_i, r_out2
+
+
+    Notes:
+    The current implentation is going to be relatively slow. Could maybe make it somewhat
+    quicker using type hints and tuples instead of lists, but probably will need
+    some kind of compilation step (e.g numba or tensorflow) to make it both general and
+    fast.
+    """
+    N_orig_in = len(which_complex_in)  # len(real_sig.parameters)
+    N_orig_out = len(which_complex_out)
+
+    def wrap_func(*real_args):
+        fin_args = []
+        i = 0
+        # Build up the arguments for the real function
+        for k in range(N_orig_in):
+            if which_complex_in[k]:
+                fin_args.append(real_args[i] + 1j * real_args[i + 1])
+                i += 1
+            else:
+                fin_args.append(real_args[i])
+            i += 1
+
+        # actually call the function
+        output = f(*fin_args)
+        if N_orig_out == 1:
+            output = [output]
+
+        # Same for output
+        fin_output = []
+        for k in range(N_orig_out):
+            fin_output.append(output[k].real)
+            # l+=1
+            if which_complex_out[k]:
+                fin_output.append(output[k].imag)
+        return fin_output
+    return wrap_func
+
 
 class D_Dt_Fast_TF:
     """ 
@@ -200,6 +301,7 @@ class D_Dt_Fast_TF:
 
 class D_Dt_Fast_numpy:
     """ 
+
     attributes:
     * dimAxes
     * state_shape
@@ -255,6 +357,7 @@ class D_Dt_Fast_numpy:
         state_dep_vals = self._calc_state_dep_vals(t, state, driving_vals)
         self.d_dt_prealloc[:] = self._d_dt(t, state, driving_vals, state_dep_vals)
         return self._flatten_state(self.d_dt_prealloc)
+        
 
     def _flatten_state(self, state):
         return state.reshape(-1)
@@ -262,20 +365,7 @@ class D_Dt_Fast_numpy:
         return flat_state.reshape(*self.state_shape)
         
 
-#NOTE: This class (ODESolver) is very bloated, and needs stripping back. Trying to put most of it's functionality into the above.
-# The new ides is... (thought s in progress):
-# * This is more of an ODEDefinition, or ODESys. or ODEinterface... or maybe Model??
-# * The actual work will be done by a Model object (which could be called a Solver???)
-# * The job of this thing is to handle the definitions, creating an optimised object for solving the system, and providing a convenient interface to get translate the output of it (maybe)
-# * Typical usage:
-#   sys = ODESys(dy_dtD, dims={})
-#   sys.set_driving()
-#   sys.set_initial_conditions()
-#   sys.set_state_dependence()
-#   sys.set_outputs()
-#   model = sys.setup_model()
-#   model.integrate_to()
-class ODESys:
+class ODESolver(object):
     """
     """
     #lambdify_modules = [{'conjugate':tf.math.conj}, 'tensorflow']
@@ -310,11 +400,11 @@ class ODESys:
                                         'prop_state_syms': propagated_state_syms,
                                         'stationary_state_syms': stationary_state_syms,  # Not yet used
                                         'driving_syms': driving_syms,
-                                        'state_dep_syms': ut.list_diff(indep_syms, driving_syms),
+                                        'state_dep_syms': list_diff(indep_syms, driving_syms),
                                         })
             #input_syms = driving_syms + state_dep_syms
             lhs_syms_orig = list(dy_dtD.keys())
-            dy_dtD, complex_subsD, symbol_mapD = ut.expand_to_re_im(dy_dtD)
+            dy_dtD, complex_subsD, symbol_mapD = expand_to_re_im(dy_dtD)
             self.complex_subsD = complex_subsD
             self.symbol_mapD = symbol_mapD
             self.state_func_sig_orig = [self.tSym] + self.dimSyms + list(propagated_state_syms) + \
@@ -333,7 +423,7 @@ class ODESys:
                                'prop_state_syms': propagated_state_syms,
                                'stationary_state_syms': stationary_state_syms,  # Not yet used
                                'driving_syms': driving_syms,
-                               'state_dep_syms': ut.list_diff(indep_syms, driving_syms),
+                               'state_dep_syms': list_diff(indep_syms, driving_syms),
                                })
         state_func_sig = [self.tSym] + self.dimSyms + list(propagated_state_syms) + \
             list(stationary_state_syms) + driving_syms
@@ -381,9 +471,9 @@ class ODESys:
 
         rhs = list(eqD.values())
         rhsSyms = list(sm.Matrix(rhs).free_symbols)
-        indep_syms = ut.list_diff(rhsSyms, state_syms)
+        indep_syms = list_diff(rhsSyms, state_syms)
         stationary_state_syms = [lhs for lhs, rhsin in eqD.items() if rhs == 0]
-        propagated_state_syms = ut.list_diff(state_syms, stationary_state_syms)
+        propagated_state_syms = list_diff(state_syms, stationary_state_syms)
         return propagated_state_syms, stationary_state_syms, indep_syms
 
     def set_initial_conditions(self, par0={}, bRealified=False):
@@ -412,9 +502,9 @@ class ODESys:
             #    par = par0[k]
             #    realified_par0.append(par.real)
             # pass
-            if not isinstance(par0, Mapping): # if it's a list, not a dictionary 
+            if not isinstance(par0, Mapping):
                 par0 = dict(zip(self.symsD_orig.prop_state_syms, par0))
-            par0, _, _ = ut.expand_to_re_im(par0, bNumericalRHS=True)
+            par0, _, _ = expand_to_re_im(par0, bNumericalRHS=True)
             #realified_par0 = []
         self.Npars = len(par0)  # Should make sure this matches dy_dtD
         if isinstance(par0, Mapping):
@@ -444,17 +534,18 @@ class ODESys:
                 self.symsD.driving_syms, tDepFD)}
         subsD = {}
         for sym in list(tDepFD.keys()):
-            val = tDepFD[sym]
+            F = tDepFD[sym]
             #if is_instance(F, RT): #RT_arg
             #    pass
-            if not callable(val): #Then maybe it's a sympy expression?
-                tDepFD[sym] = F
+            if not callable(F): #Then maybe it's a symbollic thing?
+                subsD[sym] = F
+                tDepFD.pop(sym)
         if self.bDecompose_to_re_im:  # Split into real and imagiunary bits
             tDepFD_ri = {}
             for sym in tDepFD:
                 if sym.is_real:
                     tDepFD_ri[sym] = tDepFD[sym]
-                else: #This is inefficient, especially for numpy
+                else:
                     sym_r, sym_i = self.complex_subsD[sym].as_real_imag()
                     f = tDepFD[sym]
                     tDepFD_ri[sym_r] = lambda t: f(t).real
@@ -462,9 +553,8 @@ class ODESys:
             tDepFD = tDepFD_ri
         self.tDepSubsD = subsD
         self.tDepFD = tDepFD
-        print(subsD, tDepFD)
 
-    def set_state_dependence(self, stateDepFD={}):
+    def set_state_dep_funcs(self, stateDepFD={}):
         """Functions that depend on state and time,
         but not history.
 
@@ -476,7 +566,6 @@ class ODESys:
             if not callable(F):
                 subsD[sym] = F
                 stateDepFD.pop(sym)
-        # DECOMPOSE TO REAL/IMAGINARY PARTS-----------------------------------
         if self.bDecompose_to_re_im:  # Split into real and imagiunary bits
             nDims = len(self.state_shape) - 1
             nStates = len(self.symsD_orig.prop_state_syms)
@@ -491,9 +580,8 @@ class ODESys:
                 F_flat = flatten_inputs(F, nDims, nStates, nDriving)
                 which_complex_out = [0 if sym.is_real else 1]
                 # F_ri_flat takes flattened real inputs
-                F_ri_flat = ut.realify_np(
+                F_ri_flat = realify_np(
                     F_flat, which_complex_in, which_complex_out)
-
                 def F_ri(t, dimAxes, states, driving): return F_ri_flat(
                     t, *dimAxes, *states, *driving)
 
@@ -501,37 +589,19 @@ class ODESys:
                 # return F_ri(*args).real
                 if sym.is_real:
                     stateDepFD_ri[sym] = lambda *args: F_ri(*args)[0]
+
                 else:
                     sym_r, sym_i = self.complex_subsD[sym].as_real_imag()
                     stateDepFD_ri[sym_r] = lambda *args: F_ri(*args)[0]
                     stateDepFD_ri[sym_i] = lambda *args: F_ri(*args)[1]
 
             stateDepFD = stateDepFD_ri
-        #FINISHED DECOMPOSITION=============================================
 
         self.stateDepSubsD = subsD
         self.stateDepFD = stateDepFD
 
-    def set_outputs(self, f=None):
-        """ This is the function called at every output step. If not given, it'll just output the system state variables.
-        """
-        if f is None:
-            self.outputL = []
-            def f2(sim_state):
-                res = self._unpack(sim_state)
-                return res
-                #self.outputL.append(res)
-        else:
-            def f2(sim_state):
-                state = self._unpack(sim_state)
-                res = f(state)
-                return res
-                #self.outputL.append(f(state) )
-
-        self._online_process_func = f2
-
-    def setup_model(self, bTryToSimplify=False, bForceStateDimensions=True):
-        """ Do some of the expensive steps required before things can be integrated. Return a model.
+    def setup(self, bTryToSimplify=False, bForceStateDimensions=True):
+        """ Do some of the expensive steps required before things can be integrated
 
         Steps:
             1. Decide which variables are necessary to integrate,
@@ -553,6 +623,8 @@ class ODESys:
         ##
         if self.bDecompose_to_re_im:
             # Do something to dy_dtD: this should all have been done already
+            # dy_dtD  = dy_dtD.copy()
+            # dy_dtD = self.split_RI(dy_dtD)
             pass
 
         # NOTE: This may have some keys/values removed, if they're stationary.
@@ -568,15 +640,10 @@ class ODESys:
             D_Dt_Fast = D_Dt_Fast_numpy
         else:
             D_Dt_Fast = D_Dt_Fast_TF
-        d_dt_fast = D_Dt_Fast(self.tSym, self.dimSyms, self.dimAxes, self.dy_dtD, self.tDepFD, self.stateDepFD, bForceStateDimensions=bForceStateDimensions, dtype = self.default_dtype)
+        self.d_dt_fast = D_Dt_Fast(self.tSym, self.dimSyms, self.dimAxes, self.dy_dtD, self.tDepFD, self.stateDepFD, bForceStateDimensions=bForceStateDimensions, dtype = self.default_dtype)
 
         if self._online_process_func is None:
-            self.set_outputs()
-
-        self.d_dt_fast = d_dt_fast
-        initial_state_flat = self.flatten_state(self.par0)
-        if self.backend=="numpy":
-            return ModelNumpy(d_dt_fast, initial_state_flat, self._online_process_func)
+            self.set_online_processing()
 
         def revert(vals):
             """ Add back in the initial conditions for stationary variables
@@ -584,10 +651,9 @@ class ODESys:
             This will only be useful once we start doing automatic variable removal.
             """
             raise NotImplementedError()
-        # if ut.list_diff(state_dep_syms+t_dep_syms, indep_syms) != []
+        # if list_diff(state_dep_syms+t_dep_syms, indep_syms) != []
         #    raise ValueError("there are undefined symbols")
 
-    # REDUNDANT BELOW HERE (HOPEFULLY)
     def make_d_dt_fast(self, eqD, t_dep_FD, state_dep_FD, bForceStateDimensions=False):
         state_dep_syms = list(state_dep_FD.keys())
         t_dep_syms = list(t_dep_FD.keys())
@@ -744,7 +810,6 @@ class ODESys:
             self.tSteps = tSteps #+ (tSteps[3] - tSteps[2]) / 2
             # Integrate
             for k, tNext in enumerate(self.tSteps):
-                #print(r.t, r.y)
                 if not r.successful():
                     self.lastGoodInd = k - 1
                     print("Integration failed at sim time {}".format(tNext))
@@ -802,6 +867,19 @@ class ODESys:
     def clearOutput(self):
         self.outputL = []
 
+    def set_online_processing(self, f=None):
+        """ This is the function called at every output step. If not given, it'll just output the system state variables.
+        """
+        if f is None:
+            self.outputL = []
+            def f2(sim_state):
+                self.outputL.append(self._unpack(sim_state))
+        else:
+            def f2(sim_state):
+                state = self._unpack(sim_state)
+                self.outputL.append(f(state) )
+
+        self._online_process_func = f2
 
 
 
