@@ -4,8 +4,8 @@ A (tempoary?) replacement for the old pyMBE.py, using spylind etc. Not sure if t
 long term idea, since it's a pretty clunky interface. Mostly I'm just trying to avoid re-writing examples!
 """
 
-import spyIVP as svp
-import spylind as spl
+from . import spyIVP as svp
+from . import spylind as spl
 
 """
 TODOS:
@@ -19,24 +19,22 @@ from matplotlib import pyplot as plt
 from collections import namedtuple
 import sys
 from munch import Munch as Bunch #<- just for holding the results
-import MT
 import pdb
 from scipy.linalg import toeplitz
 from scipy import interpolate
 from sympy.printing import sstr
-from pylab import *
+#from pylab import *
 import qutip as q
 import sympy as sm
-from helper import *
-import helper as h
+import os
+from . import misc
+#from helper import *
+#import helper as h
 import tensorflow as tf
-import pandas as pd
 from builtins import sum
-import symODE as so
 #pd.set_option('precision',3)
 #FieldInfo = namedtuple("Field_info", ["wavelength", "osc_strength", "cavity"])
 
-showWorking = True
 
 
 
@@ -149,8 +147,6 @@ class MBE_1D_SVEA(object):
         """
         k=2*pi/1.
 
-        if showWorking:
-            print("Doing cavity mode calcs")
         import sympy
         res_file_path = os.path.join(os.path.dirname(__file__), 'MBE_mat.txt')
         txt = open(res_file_path).read()
@@ -206,8 +202,8 @@ class MBE_1D_SVEA(object):
             if np.sum(pop0) != 1:
                 print("Warning: populations don't add up to 1. Scaling...")
                 pop0/= np.sum(pop0)#linalg.norm(pop0)
-            rho0 = diag(pop0).astype('c16') #make diagonal matrix
-            all0 = np.array(Dia(rho0) + Coh(rho0))
+            rho0 = np.diag(pop0).astype('c16') #make diagonal matrix
+            all0 = np.array(spl.Dia(rho0) + spl.Coh(rho0))
 
         #self.params.initial.rho = rho0
         self.params.initial.all = all0
@@ -235,7 +231,7 @@ class MBE_1D_SVEA(object):
         if lineShape.size!=detAx.size:
             raise ValueError("detAx and lineShape must have the same size")
         if bSmoothSpect and lineShape.size>2:
-            lineShape=normaliseSmooth(detAx, lineShape)
+            lineShape = misc.normaliseSmooth(detAx, lineShape)
 
 
         osc_strengths_sym, T1_opt_sym, br_ratio_sym = sm.symbols('A, T1, b', real=True, positive=True)
@@ -251,16 +247,16 @@ class MBE_1D_SVEA(object):
                 pass
         else:
             osc = osc_strengths
-        H0, [Esym, H1], Hlst, c_opL = constructHamiltonian(gsEnergies, esEnergies, osc_strengths=osc,
+        H0, [Esym, H1], [DetSym, Hdet], c_opL = spl.makeBlochOperators(gsEnergies, esEnergies, osc_strengths=osc,
                         T1_opt=T1_opt_sym, br_ratio=br_ratio_sym, decay_rates=decay_rates, coh_decay_rates=coh_decay_rates)
-
+        Hlst = [[DetSym, Hdet]]
         if esLabels is None:
             if gsLabels is not None:
                 esLabels = ['e:'+st[1:] for st in gsLabels[:len(esEnergies)]] # Assuming there are fewer excited states...
             else:
-                esLabels = [r'$|e'+str(num)+'>$' for num in arange(len(esEnergies))]
+                esLabels = [r'$|e'+str(num)+'>$' for num in np.arange(len(esEnergies))]
         if gsLabels is None:
-            gsLabels = [r'$|g'+str(num)+'>$' for num in arange(len(gsEnergies))]
+            gsLabels = [r'$|g'+str(num)+'>$' for num in np.arange(len(gsEnergies))]
 
         allLabels = gsLabels + esLabels
         self.params.atoms.Nground = len(gsEnergies)
@@ -280,176 +276,26 @@ class MBE_1D_SVEA(object):
         self.params.Ndet=detAx.size
         self.params.atoms.lineShape=lineShape
 
-    @staticmethod
-    def get_dAll_dt_tf(dcoh_dtF, ddia_dtF, calc_polF,
-                        EinFw,
-                        EinRv,
-                        lineShape,
-                        excArrs,
-                        detAx,
-                        kL,
-                        dz, Nz, Ncoh, Ndia, f_typ=tf.float64):#, Ndet, Ncoh, Ndia):
-
-        #EinFw = tf.py_func(EinFw, [tf.placeholder(f_typ)], f_typ)
-        #EinRv = tf.py_func(EinRv, [tf.placeholder(f_typ)], f_typ)
-
-        def dy_dt_tf(
-                yCur,t,
-                dcoh_dt=dcoh_dtF,
-                ddia_dt=ddia_dtF,
-                calc_polF=calc_polF,
-                lineShape= tf.constant(lineShape * dz,dtype=f_typ),
-                EinFw=EinFw,
-                EinRv=EinRv,
-                Ndet=detAx.size,Nz=Nz,
-                Ncoh=Ncoh, Ndia=Ndia,
-                detAx= tf.constant(2 * pi * detAx, dtype=f_typ),
-                excArrs=excArrs,
-                eps = exp(1j*kL),
-                f_typ=f_typ
-                ):
-            pop, coh= yCur[:Ndia], yCur[Ndia:]
-            #EinFwNow = tf.cast(0.1*tf.exp(-(t-0.1)**2/(0.05**2/(4*np.log(2.)))), tf.complex128)
-            EinFwNow = tf.py_func(EinFw, [t], tf.complex128, name="EinFw")
-            EinRvNow = tf.py_func(EinRv, [t], tf.complex128, name="EinRv")
-            #EinFwNow = EinFw(t)
-            #EinRvNow = EinRv(t)
-            Etot = calcEtotTF(coh, excArrs, EinFwNow, EinRvNow, lineShape, calc_polF, eps)
-            #Broadcasting will be interesting here
-            EtotB = Etot[:,newaxis]
-            diag_dt = ddia_dt(EtotB, detAx[newaxis,:], *tf.unstack(yCur) )
-            dcoh_dt = dcoh_dt(EtotB, tf.cast(detAx[newaxis,:], tf.complex128), *tf.unstack(yCur) )
-            dAll_dt= tf.concat([diag_dt, dcoh_dt], name="dAll_dt", axis=0)
-            return dAll_dt
-        return dy_dt_tf
-
-    @staticmethod
-    def get_dAll_dt_fancy(dcoh_dt, ddia_dt, calc_polF,
-                        EinFw,
-                        EinRv,
-                        lineShape,
-                        excArrs,
-                        detAx,
-                        kL,
-                        dz, Nz, Ndet, Ncoh, Ndia,
-                        noiseF=None,
-                        ):
-        def dy_dt(
-                t,
-                yCur,
-                dcoh_dt=dcoh_dt,
-                ddia_dt=ddia_dt,
-                calc_polF=calc_polF,
-                EpolFw=np.empty(Nz, dtype='c16'),
-                EpolRv=np.empty(Nz, dtype='c16'),
-                d_dt_flat=np.empty( (Ncoh+Ndia)*Nz*Ndet, dtype='c16'),#,np.empty((Ncoh + Ndia, Nz, Ndet), dtype='c16'),
-                Etot=np.empty(Nz, dtype='c16'),
-                lineShape=lineShape * dz,
-                EinFw=EinFw,
-                EinRv=EinRv,
-                Ndet=Ndet,Nz=Nz,
-                Ncoh=Ncoh, Ndia=Ndia,
-                detAx=2 * pi * detAx,
-                excArrs=excArrs,
-                eps = exp(1j*kL),
-                noiseF=noiseF,
-            ):
-
-            #Calculate field due to polarization (sum up off-diagonal elements, multiply by field mode(s))
-            allVars = yCur.reshape(Ndia + Ncoh, Nz, Ndet)
-            pop, coh = allVars[:Ndia],  allVars[Ndia:]
-            #print(pop[0].mean())
-            if noiseF is not None and 0:
-                noiseNow=noiseF(t)*(lineShape)
-            else: noiseNow=None
-            Etot, excModes= calcExcitedModesFancy(pop, coh, excArrs, EinFw(t), EinRv(t), lineShape,
-                    calc_polF, eps, EpolFw, EpolRv, Etot, noiseNow=noiseNow,detAx=detAx )
-            pop, coh = allVars[:Ndia], allVars[Ndia:]
-                #Calculate time derivative for off- and on- diagonal elements.
-            d_dt = d_dt_flat[:].reshape(Ndia + Ncoh, Nz, Ndet)
-
-            Etot = Etot[:,newaxis]
-            d_dt[:Ndia] = ddia_dt(Etot, detAx[newaxis,:], *allVars)[:,0]#.squeeze()
-            d_dt[Ndia:] = dcoh_dt(Etot, detAx[newaxis,:], *allVars)[:,0]#.squeeze()
-            if noiseF is not None and 1:
-                noiseNow=noiseF(t)
-                d_dt[Ndia:] += noiseNow#*sqrt(lineShape)
-            dy_dt.n+=1
-            return d_dt_flat
-        dy_dt.tLast=0
-        dy_dt.n=0
-        return dy_dt  # dcoh_dt, ddia_dt, drho_dtS
-
-    @staticmethod
-    def get_dAll_dt(EinFw, EinRv, dz, Nz, Ndet,detAx, lineShape,
-        fwMode, rvMode, excArrs, kL, gamma=1, gamma2=0):
-        """ Return a function handle which will be used to calculate the system time-derivative.
-        """
-        import numexpr
-        k=0
-        def dAll_dt(t, Pcur,
-                    EpolFw=np.empty(Nz, dtype='c16'),
-                    EpolRv=np.empty(Nz, dtype='c16'),
-                    dPw_dt=np.empty( (3,Nz,Ndet), dtype='c16'),
-                    Etemp=np.empty(Nz, dtype='c16'),
-                    lineShape=lineShape*dz,
-                    EinFw=EinFw, EinRv=EinRv,
-                    dz=dz, gamma=gamma,gamma2=gamma2,
-                    Nz=Nz,Ndet=Ndet,
-                    detAx=2*pi*detAx,
-                    fwMode=excArrs.fwMode, rvMode=excArrs.rvMode,
-                    #excEinFw=excArrs.excEinFw,
-                    #excEinRv=excArrs.excEinRv,
-                    #excReflFromLeft=excArrs.excReflFromLeft,
-                    #excReflFromRight=excArrs.excReflFromRight,
-                    eps=exp(1j*kL),
-                    M=excArrs.M,
-                    ):
-            #print("dAll_dt")
-            Pcur,w, pop=Pcur.reshape(3,Nz,Ndet)
-            PcurAve=(Pcur*lineShape*pop).sum(axis=-1)
-            EpolFw[:]=1*np.cumsum(PcurAve*fwMode.conj())
-            EpolRv[:]=1*np.cumsum((PcurAve*rvMode.conj())[::-1] )[::-1]
-            nonlocal k
-            if k>300:
-                pass
-            k+=1
-            excitedModes=M.dot(np.array([EinFw(t), EinRv(t), -EpolFw[-1]*eps, -EpolRv[0]*eps]))
-            Etemp[:]=( -EpolFw)*fwMode + ( -EpolRv)*rvMode + excitedModes[2]*fwMode + excitedModes[3]*rvMode #Should be EpolRv.conj()?
-
-            #em2=excitedModes[2]
-            #em3=excitedModes[3]
-            #Etemp[:]=numexpr.evaluate('( -EpolFw)*fwMode + 1*( -EpolRv)*rvMode + em2*fwMode + em3*rvMode')
-
-            #Etemp +=  excitedModes[2]*fwMode + excitedModes[3]*rvMode
-
-            #dp_dt
-            #dPw_dt[0]=0
-            #dPw_dt[1]=0
-            #dPw_dt[2]=0
-
-            dPw_dt[0]=((-w*Etemp[...,newaxis]) - (gamma+gamma2)/2*Pcur + (1j*detAx)[newaxis]*Pcur )#[newaxis] #P
-            dPw_dt[1]=1*np.real(Pcur*Etemp[...,newaxis].conj() -gamma*(w+1) -gamma2*(w+1)*pop) #w
-            dPw_dt[2]=-1*gamma2*(w+1)*pop #w
-
-            return dPw_dt.flat #flatten?
-        return dAll_dt
 
     def configure_ode(self):
         p=self.params
+
+        # Setup atom equations of motion
         DeltaS, Hdet = p.atoms.Hlst[0]
         EexS, H1a = p.atoms.H1
-        H1a = np.matrix(sm.Matrix(np.tril(H1a, -1)).subs(EexS,1)) # This doesn't seem right?
+        H1a = np.matrix(sm.Matrix(np.tril(H1a, -1)).subs(EexS,1)).T.conj() # Making a operator?
         H_desc = [p.atoms.H0, [EexS, H1a], [sm.conjugate(EexS), H1a.T.conj()], (DeltaS, 2*np.pi*Hdet) ]
         eq, expect_vals=spl.makeMESymb(H_desc, c_opL=p.atoms.c_opL, e_opL = [H1a], bReturnMatrixEquation=True)
         p.atoms.smEq = eq
         lhsL, rhsL = spl.seperate_DM_equation(eq.subs(p.atoms.subsD))
-        #{key:val.subs(E_exS, 0) for key,val in  s.dy_dtD.items()}
+
+        # Decide on type of simulation to make
         if len(self.params.zAx)<1: # Just Bloch, no Maxell (no depth axis)
             ode_s = svp.ODESys(dict(zip(lhsL, rhsL) ),  dims={DeltaS:p.detAx }, driving_syms=[EexS])
             detAx = ode_s.dimAxes[0]
             #ode_s.set_driving({EinS: p.inputs.EinFw})
-        else: #1 di
+
+        else: #1-way, 1D sim (sometimes called "moving frame"
             zS, EinS = sm.symbols("z, E_in")
             rhsL = [el.subs(EexS, EinS+EexS) for el in rhsL]
             ode_s = svp.ODESys(dict(zip(lhsL, rhsL) ),  dims={zS: self.params.zAx, DeltaS:p.detAx }, driving_syms=[EexS])
@@ -462,14 +308,15 @@ class MBE_1D_SVEA(object):
             effectiveLineShape = p.atoms.lineShape/p.length*dz
             p.atoms.effectiveLineShape = effectiveLineShape
 
-            #kL=2*pi*self.params.length
-            # Atom polarisation part
             def calcEintF(t, dimAxs, state,  driving, lineShape=effectiveLineShape):
                 """ Field due to polarisation of atoms """
                 P = -1j*np.cumsum( (polF(*state)*lineShape).sum(axis=1), axis=0)#*mode
                 return P.reshape(dimAxs[0].shape)
             # For 2-way will need one of these for each direction
             ode_s.set_state_dependence({EinS:calcEintF})
+
+
+
         self.ode_s = ode_s
         return ode_s
         # Up to here could be cached
@@ -483,10 +330,10 @@ class MBE_1D_SVEA(object):
             ode_s = self.ode_s
         ode_s.set_initial_conditions(self.params.initial.all*(1 + 0.0j))
         ode_s.set_driving([self.params.inputs.EinFw])
-        model = ode_s.setup_model()
+        model = ode_s.setup_model(max_step = max_step_size)
         #Integrate now
         #print("start integrating")
-        res = model.integrate(tSteps, max_step=max_step_size)
+        res = model.integrate(tSteps)
         #return res
         outA = np.array(res)
         self.makeOutputs(tSteps, outA)
@@ -555,6 +402,7 @@ class MBE_1D_SVEA(object):
 
 
     def showSummary(self):
+        import pandas as pd
         # Get energy splittings, labels etc
         atomP = self.params.atoms
         stateLabels=atomP.stateLabels
@@ -566,7 +414,7 @@ class MBE_1D_SVEA(object):
 
         def showPrettyTable(mat, title,topLeft=None):
             df= pd.DataFrame(mat, index=stateLabels, columns=stateLabels)
-            display(formatComplexDF(smDataFrame(df), title=title, topLeft=topLeft, prec=1))
+            display(spl.formatComplexDF(spl.smDataFrame(df), title=title, topLeft=topLeft, prec=1))
         # Make a pandas dataframe
         showPrettyTable(atomP.H0/(np.pi*2), title=r"$H_0/(2\pi)$")
         showPrettyTable(atomP.H1[1], title=r"$H_\mathrm{int}$")
@@ -650,7 +498,7 @@ def showFieldAbs(res):
 def show_pop_vs_t(res, zSlc=None, whichStates=None):
     stateSlc = np.arange(res.popT.shape[1]) if whichStates is None else whichStates
     if zSlc is None:
-        zSlc = arange(res.popT.shape[2])
+        zSlc = np.arange(res.popT.shape[2])
     else:
         try:
             zSlc = res.z.searchsorted(zSlc)
@@ -786,7 +634,6 @@ def _plot_energy_levels(gsEnergies, esEnergies, stateLabels=None, fig=None, ax=N
 
 
 if __name__=="__main__":
-    import MT
     from pylab import *
     if 0:
         bw=6.0

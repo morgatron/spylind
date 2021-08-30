@@ -271,8 +271,7 @@ def makeMESymb_cacheable(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquati
     print(str(H_L), str(c_opL), str(e_opL))
     return
 
-
-def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
+def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
     """Take the Hamiltonia,coeficients and return density matrix evolution
     expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]"""
     #print('makeMESymb enter', flush=True)
@@ -316,10 +315,14 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquation=False):
         ex = ex.simplify()
         e_op_outL.append(ex)
     eq = sm.Eq(rhoS, drho_dtS)
-    if bReturnMatrixEquation: #returns the full matrix
-        return eq, e_op_outL
     lhsL, rhsL = seperate_DM_equation(eq) #otherwise just the evolving bits
-    return lhsL, rhsL, e_op_outL
+    evoD = dict(zip(lhsL, rhsL) )
+    if bReturnPrettyEquation: #returns the full matrix
+        from IPython.display import Latex
+        latex_obj = Latex( eq._repr_latex_()[:15]+r'\frac{d}{dt}'+eq._repr_latex_()[15:])
+        return evoD, e_op_outL, latex_obj
+
+    return evoD, e_op_outL
 
 
 #mesolve(H, rho0, tlist, c_ops=None, e_ops=None
@@ -355,7 +358,7 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
     #unpack H
     #make simulation
 
-# Pretty printing of sympy matrices
+# Pretty printing of sympy matrices in notebooks
 try:
     import re
     from IPython.display import HTML, display, Latex

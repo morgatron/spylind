@@ -169,3 +169,13 @@ def realify_np(f, which_complex_in=[], which_complex_out=[]):
     return wrap_func
 
 
+def normaliseSmooth(det, od):
+    """Divide the nominally smooth, but disctretized function "OD" by the density
+    of points it's evaluated at. Can be useful for compensating when discretizing
+    using a small, or changing, number of points.
+    """
+    det2=np.hstack([ [2*det[0]-det[1]], det, [2*det[-1]-det[-2]] ])
+    dif=np.diff(det2)
+    dfSm=np.interp( np.arange(0.5, dif.size-0.5, 1), np.arange(dif.size), dif)
+    #print("scl: {}".format(dfSm.mean()))
+    return od*dfSm

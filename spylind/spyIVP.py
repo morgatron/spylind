@@ -82,6 +82,7 @@ class Model(ABC):
         tSteps = np.arange(0, tEnd, dt)
         return self.integrate(tSteps)
 
+
 class ModelNumpy(Model):# Should really be called Scipy, probably!
     outputL = []
     def __init__(self, d_dt, state_at_t0, online_processing_func,  name =None, method='adams',atol = 1e-12, rtol=1e-6, max_step=0.1, **kwargs):
@@ -96,12 +97,13 @@ class ModelNumpy(Model):# Should really be called Scipy, probably!
         self.initial_state = state_at_t0
         int_obj = integrate.ode(d_dt)
         #if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
-        int_obj.set_integrator(name, max_step=max_step,
+        int_obj.set_integrator(name, max_step=max_step, method = method,
                              **kwargs)  # ,order=5) # or adams
         int_obj.set_initial_value(state_at_t0, 0)
         self.scipy_integrator = int_obj
 
-    def integrate(self, tSteps):
+
+    def integrate(self, tSteps, **kwargs):
         I = self.scipy_integrator # useful to keep this for debugging
         outputL = []
         if tSteps[0]==I.t: # handle initial. It's a bit messy here. Hopefully can get rid of it
@@ -117,7 +119,7 @@ class ModelNumpy(Model):# Should really be called Scipy, probably!
                 print("Integration failed at sim time {}".format(tNext))
                 break
             #print(I.t, I.y)
-            cur_state_flat = I.integrate(tNext)
+            cur_state_flat = I.integrate(tNext, **kwargs)
             # probably reshaping, calculating fields etc
             outputL.append(self._online_process_func(cur_state_flat))
         return np.array(outputL)
@@ -292,10 +294,12 @@ class ODESys:
                  state_dep_syms=[],
                  bDecompose_to_re_im=False, backend='numpy', default_dtype=np.complex128):
         self.backend = backend
-        self.dims = dims
+
         self.dimAxes = list(dims.values())
         self.dimSyms = list(dims.keys())
         self.dim_shape = tuple([dim.size for dim in self.dimAxes])
+        self.dims = preShaped_dimAxes = [dAx.reshape(*(k * [1] + [dAx.size] + (len(self.dimAxes) - k - 1) * [1]))
+                                 for k, dAx in enumerate(self.dimAxes)]
         self.tSym = tSym
         # np.float64 if bDecompose_to_re_im else np.complex128
         self.default_dtype = default_dtype
@@ -403,7 +407,6 @@ class ODESys:
         """
         # Do something to make sure dimensions, order of symbols, are right
         #missing_symbols = set(par0.keys()).difference(self.symsD.prop_state_syms)
-
         if self.bDecompose_to_re_im and not bRealified:  # map complex to real
             # Map from position in self.state_syms to self.dy_dD
             # Somehow do the mapping based on a dictionary
@@ -416,6 +419,7 @@ class ODESys:
                 par0 = dict(zip(self.symsD_orig.prop_state_syms, par0))
             par0, _, _ = ut.expand_to_re_im(par0, bNumericalRHS=True)
             #realified_par0 = []
+
         self.Npars = len(par0)  # Should make sure this matches dy_dtD
         if isinstance(par0, Mapping):
             par0 = np.array([par0[key]
@@ -448,7 +452,9 @@ class ODESys:
             #if is_instance(F, RT): #RT_arg
             #    pass
             if not callable(val): #Then maybe it's a sympy expression?
+                F= sm.lambdify(self.tSym, val, modules="numpy")
                 tDepFD[sym] = F
+
         if self.bDecompose_to_re_im:  # Split into real and imagiunary bits
             tDepFD_ri = {}
             for sym in tDepFD:
@@ -488,7 +494,7 @@ class ODESys:
             stateDepFD_ri = {}
             for sym, F in stateDepFD.items():
                 # F_flat takes flattened complex inputs
-                F_flat = flatten_inputs(F, nDims, nStates, nDriving)
+                F_flat = ut.flatten_inputs(F, nDims, nStates, nDriving)
                 which_complex_out = [0 if sym.is_real else 1]
                 # F_ri_flat takes flattened real inputs
                 F_ri_flat = ut.realify_np(
@@ -530,7 +536,7 @@ class ODESys:
 
         self._online_process_func = f2
 
-    def setup_model(self, bTryToSimplify=False, bForceStateDimensions=True):
+    def setup_model(self, bTryToSimplify=False, bForceStateDimensions=True, subsD = {}, **kwargs):
         """ Do some of the expensive steps required before things can be integrated. Return a model.
 
         Steps:
@@ -546,7 +552,7 @@ class ODESys:
 
         # DO SUBSTITUTIONS
         dy_dtD = self.dy_dtD
-        dy_dtD = {sym: ex.subs(self.stateDepSubsD).subs(self.tDepSubsD)
+        dy_dtD = {sym: ex.subs(self.stateDepSubsD).subs(self.tDepSubsD).subs(subsD)
                   for sym, ex in self.dy_dtD.items()}
         if bTryToSimplify:
             dy_dtD = {sym: ex.simplify() for sym, ex in dy_dtD.items()}
@@ -568,7 +574,7 @@ class ODESys:
             D_Dt_Fast = D_Dt_Fast_numpy
         else:
             D_Dt_Fast = D_Dt_Fast_TF
-        d_dt_fast = D_Dt_Fast(self.tSym, self.dimSyms, self.dimAxes, self.dy_dtD, self.tDepFD, self.stateDepFD, bForceStateDimensions=bForceStateDimensions, dtype = self.default_dtype)
+        d_dt_fast = D_Dt_Fast(self.tSym, self.dimSyms, self.dimAxes, dy_dtD, self.tDepFD, self.stateDepFD, bForceStateDimensions=bForceStateDimensions, dtype = self.default_dtype)
 
         if self._online_process_func is None:
             self.set_outputs()
@@ -576,7 +582,7 @@ class ODESys:
         self.d_dt_fast = d_dt_fast
         initial_state_flat = self.flatten_state(self.par0)
         if self.backend=="numpy":
-            return ModelNumpy(d_dt_fast, initial_state_flat, self._online_process_func)
+            return ModelNumpy(d_dt_fast, initial_state_flat, self._online_process_func, **kwargs)
 
         def revert(vals):
             """ Add back in the initial conditions for stationary variables
@@ -804,11 +810,7 @@ class ODESys:
 
 
 
-
-
-
 if __name__ == "__main__":
-
     def test_ODESolver():
         p1S, p2S, zS, tS, F, F2, G, DeltaS = sm.symbols(
             'x, y, z, t, F, F2, G Delta')
