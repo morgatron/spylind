@@ -273,7 +273,13 @@ def makeMESymb_cacheable(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnMatrixEquati
 
 def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
     """Take the Hamiltonia,coeficients and return density matrix evolution
-    expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]"""
+    expressions Format for H: [H0, [coeff_sym1, H1], [coeff_sym2, H2] ...]
+
+    c_opL takes a similar format : [ [sym1, op1], [sym2, op2]] for collapse operators (although no coeficient is required)
+    e_opL is a list of operators to take the expectation value of. No coefcients.
+
+    If rhoS is given, it's a assumed to be a symbollic density matrix, and the outputs will be in terms of these elements. If it's not given, one will be made.
+    """
     #print('makeMESymb enter', flush=True)
     #pdb.set_trace()
     # Make the liouvillian-----------------------------------
@@ -317,7 +323,7 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
     eq = sm.Eq(rhoS, drho_dtS)
     lhsL, rhsL = seperate_DM_equation(eq) #otherwise just the evolving bits
     evoD = dict(zip(lhsL, rhsL) )
-    if bReturnPrettyEquation: #returns the full matrix
+    if bReturnPrettyEquation: #returns a nice Latex representation of the result
         from IPython.display import Latex
         latex_obj = Latex( eq._repr_latex_()[:15]+r'\frac{d}{dt}'+eq._repr_latex_()[15:])
         return evoD, e_op_outL, latex_obj
@@ -355,8 +361,6 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
         #f = sm.lambdify(ode_s.state_syms, e_op_outL)
         #return f(state_res)
     return state_res
-    #unpack H
-    #make simulation
 
 # Pretty printing of sympy matrices in notebooks
 try:
