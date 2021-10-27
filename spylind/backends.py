@@ -51,7 +51,7 @@ class Model(ABC):
 class ModelNumpy(Model):# Should really be called ModelScipy
 
     outputL = []
-    def __init__(self, d_dt, state_at_t0, output_func, state_shape=None, name =None, method='adams',atol = 1e-12, rtol=1e-6, max_step=0.1, **kwargs):
+    def __init__(self, d_dt, state_at_t0, output_func, state_shape=None, name =None, method='adams',atol = 1e-12, rtol=1e-6, max_step=0.1, input_modifiers={}, **kwargs):
         """this is usually called by setup in ODESys"""
 
         if name is None:
@@ -60,7 +60,7 @@ class ModelNumpy(Model):# Should really be called ModelScipy
                 name = 'zvode'
         self.d_dtF_orig = d_dt
 
-        self._online_process_func =  output_func
+        self._calc_output_user =  output_func
         self.initial_state = state_at_t0
         int_obj = integrate.ode(self.d_dtF_wrapped)
         #if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
@@ -80,9 +80,13 @@ class ModelNumpy(Model):# Should really be called ModelScipy
 
     def d_dtF_wrapped(self, t, state_flat):
         state = self._unflatten(state_flat)
-        #pdb.set_trace()
         d_dt_ = self.d_dtF_orig(t, state)
         return self._flatten(d_dt_)
+
+    def calc_output(self, t,state):
+        #state = self._unflatten(state_flat)
+        driving_vals, intermediate_vals, state_dep_vals = self.d_dtF_orig._calc_all_requirements(t,state)
+        return self._calc_output_user(t,state, driving_vals, intermediate_vals, state_dep_vals )
 
     def integrate(self, tSteps, initial_state=None, paramD={}, **kwargs):
         if initial_state is None:
@@ -92,8 +96,9 @@ class ModelNumpy(Model):# Should really be called ModelScipy
         # Should look at tSteps and reset if we're asking to restart
         outputL = []
         if tSteps[0]==I.t: # Don't try and evolve to t==0. 
+            outputL.append(self.calc_output(tSteps[0], initial_state))
             tSteps= tSteps[1:]
-            outputL.append(self._online_process_func(initial_state))
+            #outputL.append(self._online_process_func(initial_state))
             #self._online_process_func(cur_state_flat)
 
         # Integrate
@@ -104,7 +109,8 @@ class ModelNumpy(Model):# Should really be called ModelScipy
                 break
             cur_state = self._unflatten( I.integrate(tNext) )
             # probably reshaping, calculating fields etc
-            outputL.append(self._online_process_func(cur_state))
+
+            outputL.append(self.calc_output(tNext, cur_state))
         return np.array(outputL)
 
 class D_Dt_Fast_numpy:
@@ -117,19 +123,24 @@ class D_Dt_Fast_numpy:
     * d_dt
     """
     lambdify_modules = 'numpy'
-    def __init__(self, t_sym, dim_syms, dimAxes, evoD, t_dep_FD, state_dep_FD= {},  bForceStateDimensions = False, dtype=np.complex128):
+    def __init__(self, t_sym, dim_syms, dimAxes, evoD, t_dep_FD, intermediate_exprs= [], state_dep_FD= {},  constantsD= {}, bForceStateDimensions = False, dtype=np.complex128):
         state_dep_syms = list(state_dep_FD.keys())
         t_dep_syms = list(t_dep_FD.keys())
         indep_syms = t_dep_syms + state_dep_syms
         state_syms = list(evoD.keys())
+        constant_syms = list(constantsD.keys())
         dim_shape = tuple([len(ax) for ax in dimAxes])
         state_shape = tuple([len(evoD), *dim_shape])
 
         input_syms = [t_sym] + dim_syms + \
-            state_syms + t_dep_syms + state_dep_syms
-
+            state_syms + t_dep_syms + state_dep_syms +constant_syms
         d_dtF = sm.lambdify(input_syms, list(evoD.values()), modules= self.lambdify_modules)
-        if bForceStateDimensions: #Useful if the included functions don't always return a correctly shaped output
+
+        intermediate_syms =  [t_sym] + dim_syms + \
+            state_syms + t_dep_syms + constant_syms
+        self.intermediate_calc_F = sm.lambdify(intermediate_syms, intermediate_exprs, modules= self.lambdify_modules)
+
+        if bForceStateDimensions: #Sometimes useful if the included functions don't always return a correctly shaped output
             d_dtF0 = d_dtF
             d_dtF = lambda *args: [np.broadcast_to(out, dim_shape)
                                     for out in d_dtF0(*args)]
@@ -140,8 +151,9 @@ class D_Dt_Fast_numpy:
                             np.zeros(state_shape, dtype= dtype) )
         self.dimAxes = [ax.reshape(*(k * [1] + [ax.size] + (len(dimAxes) - k - 1) * [1]))
                                 for k, ax in enumerate(dimAxes)]
-        self.state_dep_f = list(state_dep_FD.values())
+        self.state_dep_f = list(state_dep_FD.values()) #should probably be tuples... maybe even named ones
         self.t_dep_f = list(t_dep_FD.values())
+        self.constant_vals = list(constantsD.values())
         
         #For later inspection
         self.evoD = evoD
@@ -150,16 +162,31 @@ class D_Dt_Fast_numpy:
         driving_vals = [f(t) for f in self.t_dep_f]
         return driving_vals
 
-    def _calc_state_dep_vals(self, t, state, driving_vals):
-        state_dep_vals = [f(t, self.dimAxes, state, driving_vals)
+    def _calc_state_dep_vals(self, t, state, driving_vals, intermediate_vals=[], constants=[]):
+        state_dep_vals = [f(t, self.dimAxes, state, driving_vals, intermediate_vals, self.constant_vals)
                             for f in self.state_dep_f]
         return state_dep_vals
+
+    def _calc_intermediate_vals(self, t, state, driving_vals):
+        '''Calculate all the bits required by the evolution function
+        '''
+        intermediate_vals  = self.intermediate_calc_F(t, *self.dimAxes, *state, *driving_vals, *self.constant_vals)
+        return intermediate_vals
+
+    def _calc_all_requirements(self, t, state):
+        driving_vals = self._calc_driving_vals(t)
+        intermediate_vals = self._calc_intermediate_vals(t, state, driving_vals)
+        state_dep_vals = self._calc_state_dep_vals(t, state, driving_vals, intermediate_vals)
+        return driving_vals, intermediate_vals, state_dep_vals
+
+    def _calc_outputs(self,t,state):
+        driving_vals, intermediate_vals, state_dep_vals = self._calc_all_requirements(t,state)
         
     def __call__(self, t, state):
-        driving_vals = self._calc_driving_vals(t)
-        state_dep_vals = self._calc_state_dep_vals(t, state, driving_vals)
-        self.d_dt_current[:] = self.d_dtF(t, *self.dimAxes, *state, *driving_vals, *state_dep_vals)
+        driving_vals, intermediate_vals, state_dep_vals = self._calc_all_requirements(t,state)
+        self.d_dt_current[:] = self.d_dtF(t, *self.dimAxes, *state, *driving_vals, *state_dep_vals, *self.constant_vals)
         return self.d_dt_current
+
 
         
 class D_Dt_Fast_TF:

@@ -41,6 +41,7 @@ from .backends import ModelNumpy, D_Dt_Fast_numpy
 #import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
+from scipy import interpolate
 
 
 #NOTE: This class (ODESys) is quite bloated, and needs stripping back. Trying to put most of it's functionality into the above.
@@ -60,7 +61,7 @@ class ODESys:
     """
     """
     _output_func = None
-    def __init__(self, dy_dtD, to_calcD = {}, dimsD={}, tSym=sm.symbols('t'), driving_syms=[],
+    def __init__(self, dy_dtD, intermediate_calcs = {}, trans_dims={}, tSym=sm.symbols('t'), driving_syms=[],state_dep_syms = [], constant_syms = [],
                  bTryToSimplify=False,
                  bDecompose_to_re_im=False, sim_dtype=None):
         # Take care of any python data types on the RHS, convert them to sympy equivalents
@@ -68,16 +69,25 @@ class ODESys:
 
         if bTryToSimplify:
             dy_dtD = {sym: ex.simplify() for sym, ex in dy_dtD.items()}
-        N_dims = len(dimsD)
+        N_dims = len(trans_dims)
 
+        #dims = Munch(
+        #    vals = list(dimsD.values()),
+        #    symbols = list(dimsD.keys()),
+        #    #shape = tuple([dim.size for dim in dimsD.values()]) if N_dims else 1,
+        #    shape = tuple([dim.size for dim in dimsD.values()]),
+        #    broadcastable = {sym:arr.reshape(*(k * [1] + [arr.size] + (N_dims - k - 1) * [1]))
+        #                         for k, (sym, arr) in enumerate(dimsD.items()) }
+        #    )
         dims = Munch(
-            vals = list(dimsD.values()),
-            symbols = list(dimsD.keys()),
+            axes = trans_dims,
+            symbols = list(trans_dims.keys()),
             #shape = tuple([dim.size for dim in dimsD.values()]) if N_dims else 1,
-            shape = tuple([dim.size for dim in dimsD.values()]),
-            broadcastable = {sym:arr.reshape(*(k * [1] + [arr.size] + (N_dims - k - 1) * [1]))
-                                 for k, (sym, arr) in enumerate(dimsD.items()) }
+            shape = tuple([dim.size for dim in trans_dims.values()]),
+            axes_broadcastable = {sym:arr.reshape(*(k * [1] + [arr.size] + (N_dims - k - 1) * [1]))
+                                 for k, (sym, arr) in enumerate(trans_dims.items()) }
             )
+
 
         propagated_state_syms, stationary_state_syms, free_syms = self.sort_symbols(
             dy_dtD)
@@ -85,9 +95,11 @@ class ODESys:
                                'dimensions': dims.symbols,
                                'state': propagated_state_syms + stationary_state_syms,
                                'stationary_state': [],  # Not yet used
+                               'intermediate': [sm.symbols('I_{}'.format(i)) for i in range(len(intermediate_calcs))],
                                'driving': driving_syms,
-                               'to_calc': to_calc_syms,
-                               'unspecified': ut.list_diff(free_syms, driving_syms), 
+                               'state_dep': state_dep_syms,
+                               'constants': constant_syms,
+                               'unspecified': set(free_syms).difference( list(driving_syms)+list(state_dep_syms)+dims.symbols + constant_syms), 
                                })
         state_func_signature = (symsD.t, symsD.dimensions, symsD.state, \
             symsD.stationary_state, symsD.driving)
@@ -100,12 +112,14 @@ class ODESys:
         self.sim_dtype = sim_dtype
         self.dims = dims
         self.dy_dtD = dy_dtD
+        self.intermediate_calcs = intermediate_calcs
         self.sim_size = int(len(dy_dtD) * np.product(dims.shape))
         self.state_shape = tuple([len(dy_dtD), *dims.shape])
         self.state_func_signature = state_func_signature
+        self.constantsD = {sym:None for sym in constant_syms}
 
         #print(self.symsD)
-        print(f"Signature for state_dep_funcs: {state_func_signature}")
+        #print(f"Signature for state_dep_funcs: {state_func_signature}")
 
         # REAL/IMAG decomposition
         # If we need to decompose, take the following steps:
@@ -153,6 +167,50 @@ class ODESys:
 
         self.driving_funcs_D = {}
 
+    def summary(self):
+        from IPython.display import display, Latex, Markdown
+        def ltx_repr_list(lst):
+            lst=[obj._repr_latex_() for obj in lst]
+            txt = '[ '+ ', '.join(lst) + ' ]'
+            return txt
+
+        self.show_signatures()
+        display(Markdown("**Variables:**"))
+        display(Latex(f"Dimensions: {ltx_repr_list(self.dims.symbols)} : {self.dims.shape}"))
+        display(Latex(f"State variables: {ltx_repr_list(self.symsD.state)}") )
+        display(Latex(f"Driving symbols: {ltx_repr_list(self.symsD.driving)}") )
+        display(Latex(f"State-dep symbols: {ltx_repr_list(self.symsD.state_dep)}") )
+        display(Latex(f"Constant symbols: {ltx_repr_list(self.symsD.constants)}") )
+        display(Latex(f"Free symbols: {ltx_repr_list(self.symsD.unspecified)}") )
+        state_size = np.product([len(self.symsD.state), *self.dims.shape])
+        display(Latex(f"State size: {state_size/1e3} k vars"))
+        #Ideally test here wether running in an Ipython notebook
+        # Plain text version
+        #print(f"Dimensions: {list(self.dims.axes.keys())} ({self.dims.shape})")
+        #print(f"State variables: {self.symsD.state}")
+        #print(f"Driving symbols: {self.symsD.driving}")
+        #print(f"State-dep symbols: {self.symsD.state_dep}")
+        #print(f"Free symbols: {self.symsD.unspecified}")
+        ##print(f"Intermediate calcs :{}")
+        #state_size = np.product([len(self.symsD.state), *self.dims.shape])
+        #print(f"State size: {state_size/1e3} k vars")
+
+    def show_signatures(self):
+        from IPython.display import display, Latex, Markdown
+        def ltx_repr_list(lst):
+            lst=[obj._repr_latex_()[1:-1] for obj in lst]
+            txt = '[ '+ ', '.join(lst) + ' ]'
+            return '$'+txt+'$'
+        display(Markdown(("**Function signatures:**")))
+        st_state = f"state_dep_f( {self.symsD.t._repr_latex_()}, dimAxes = {ltx_repr_list(self.dims.axes.keys())}, state = { ltx_repr_list(self.symsD.state) }, driving= { ltx_repr_list(self.symsD.driving) }, intermediate = {ltx_repr_list(self.symsD.intermediate)} )"    
+        #st_state = f"state_dep_f( intermediate= { ltx_repr_list(self.symsD.intermediate) } )"    
+
+        st_output = f"output_f( {self.symsD.t._repr_latex_()}, dimAxes = {ltx_repr_list(self.dims.axes.keys())}, state = {ltx_repr_list(self.symsD.state)}, driving= {ltx_repr_list(self.symsD.driving)}, state_dependent= {ltx_repr_list(self.symsD.state_dep)} , intermediate = {ltx_repr_list(self.symsD.intermediate)} )"    
+        display(Markdown(st_state))
+        display(Markdown(st_output))
+        #print(st_state)
+        #print(st_output)
+
     @staticmethod
     def sort_symbols(eqD):
         """ Sort symbols in a system of equations defined by eqD.
@@ -178,7 +236,7 @@ class ODESys:
         propagated_state_syms = ut.list_diff(state_syms, stationary_state_syms)
         return propagated_state_syms, stationary_state_syms, free_syms
 
-    def set_initial_conditions(self, par0={}, bRealified=False):
+    def set_initial_state(self, par0={}, bRealified=False):
         """ Set the initial paramters. The main logic here is to account for different ways they might be expressed.
         Possibilities are:
             * A dictionary of symbol: initial state pairs
@@ -208,7 +266,7 @@ class ODESys:
             par0 = [par0[key] for key in self.symsD.state] #order them correctly
                              
         def expand_shape(arr): 
-            """Covers the case when arr is a scalar, a full array with same size as the state space, or an array broadcastable to that."""
+            """Covers the case when @arr is a scalar, a full array with same size as the state space, or an array broadcastable to that."""
             if np.array(arr).shape != self.dims.shape:
                 arr = arr*np.ones(self.dims.shape, dtype=self.sim_dtype)
             return arr
@@ -257,6 +315,7 @@ class ODESys:
             driving_funcs_D = driving_funcs_D_ri
 
         self.driving_funcs_D = driving_funcs_D
+        self.input_modifiers = ...
         #print(driving_funcs_D)
 
     def set_state_dependence(self, state_dep_funcs_D={}, bAlreadyRealified=False):
@@ -316,18 +375,14 @@ class ODESys:
 
         if f is None: # if we
             self.outputL = []
-            def f_wrapped(sim_state):
+            def f(t, sim_state, *args):
                 res = sim_state
                 return res
-        else:
-            def f_wrapped(sim_state):
-                state = sim_state
-                res = f(state)
-                return res
+        #could check if it's a list of expressions and lambdify those?
 
-        self._output_func = f_wrapped
+        self._output_func = f
 
-    def setup_model(self, substitutionsD = {}, bLastMinuteSimplify=False, backend = 'numpy', bForceStateDimensions=True, **model_kwargs):
+    def setup_model(self, substitutionsD = {}, bLastMinuteSimplify=False, backend = 'numpy', bForceStateDimensions=False, **model_kwargs):
         """ Do some of the expensive steps required before things can be integrated. Return a model.
 
         Steps:
@@ -347,6 +402,8 @@ class ODESys:
                   for sym, ex in self.dy_dtD.items()}
         if bLastMinuteSimplify:
             dy_dtD = {sym: ex.simplify() for sym, ex in dy_dtD.items()}
+
+        intermediate_calcs_subbed = [expr.subs(substitutionsD) for expr in self.intermediate_calcs]
         ##
         if self.bDecompose_to_re_im:
             # Do something to dy_dtD: this should all have been done already in __init__
@@ -359,7 +416,7 @@ class ODESys:
         # Currently we're not, so we'll ignore this.
 
         if backend=="numpy":
-            d_dt_fast = D_Dt_Fast_numpy(self.symsD.t, self.symsD.dimensions, self.dims.vals, dy_dtD, self.driving_funcs_D, self.state_dep_funcs_D, bForceStateDimensions=bForceStateDimensions, dtype = self.sim_dtype)
+            d_dt_fast = D_Dt_Fast_numpy(self.symsD.t, self.symsD.dimensions, self.dims.axes.values(), dy_dtD, self.driving_funcs_D, intermediate_calcs_subbed, self.state_dep_funcs_D, constantsD =self.constantsD, bForceStateDimensions=bForceStateDimensions, dtype = self.sim_dtype)
             model= ModelNumpy(d_dt_fast, initial_state, self._output_func, **model_kwargs)
 
         elif backend == 'tensorflow':
