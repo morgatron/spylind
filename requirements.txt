@@ -5,3 +5,5 @@ scipy
 sympy
 munch
 qutip
+python-box
+matplotlib
