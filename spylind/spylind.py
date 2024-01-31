@@ -5,7 +5,7 @@ from sympy.printing import sstr
 import qutip as q
 import sympy as sm
 import os
-from collections import Iterable   # drop `.abc` with Python 2.7 or lower
+from collections.abc import Iterable   # drop `.abc` with Python 2.7 or lower
 from itertools import product
 from . import spyIVP as ivp
 
@@ -137,8 +137,8 @@ def getTensoredRhoS(*args):
             rhoM[i, k] = sym
     return sm.Matrix(rhoM)
 
-def getRhoS(Nstates):
-    def symName(i1, i2): return '\\rho_{{{0}|{1}}}'.format(i1, i2)
+def getRhoS(Nstates, base_symbol = "\\rho"):
+    def symName(i1, i2): return '{0}_{{{1}|{2}}}'.format(base_symbol, i1, i2)
     M = np.empty((Nstates, Nstates), dtype='O')
     DI = np.diag_indices(Nstates)
     UI = np.triu_indices(Nstates, 1)

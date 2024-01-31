@@ -1,6 +1,11 @@
-""" Kind of an NDSolve replacement for sympy
+""" A class to ease the use of sympy expressions in ODEs
 
-Plan: a class called ODESolver. Takes a symbollic dy_dt as input, as well as as
+The main interface is an object representing a system of ODEs, ODESys. 
+This class is initialised with a 'symbollic' description of the system. Which symbols are time dependent, which are state dependent etc. If plain numerical functions are required to evaluate some of these symbols, the requured signatures for these functions are shown. 
+
+To actually solve the system, we make a 'Model'. To make the Model, we need to tell ODESys how to evaluate all unkown symbols and what backend it should use. We can also tell it what should be saved along the way. These are put into a ModelParameters object. The combination of a ModelParameters and an ODESys makes a Model, which can then be evaluated. 
+
+========================
 python or symbollic functions for indep variables
 It will/can:
     1. Do some preprocessing to simplify and eliminate unchanging state
@@ -12,7 +17,6 @@ It will/can:
     5. Optionally takes a list of actually desired outputs, so that others potentially don't have to be calculated.
 
 
-# Notes for various builtins
 
 # Decomposition into real and imaginary parameters
 In general, the equations we use(especially master equations) will will have
@@ -35,9 +39,10 @@ import numpy as np
 from numpy import linspace, arange
 import pdb
 from munch import Munch, munchify
+from box import Box
 from .import utils as ut
-from .backends import ModelNumpy, D_Dt_Fast_numpy
-
+from .backends import ModelNumpy, D_Dt_Fast_numpy 
+#from .backends import ModelTensorflow, D_Dt_Fast_TF
 #import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
@@ -79,7 +84,7 @@ class ODESys:
         #    broadcastable = {sym:arr.reshape(*(k * [1] + [arr.size] + (N_dims - k - 1) * [1]))
         #                         for k, (sym, arr) in enumerate(dimsD.items()) }
         #    )
-        dims = Munch(
+        dims = Box(
             axes = trans_dims,
             symbols = list(trans_dims.keys()),
             #shape = tuple([dim.size for dim in dimsD.values()]) if N_dims else 1,
@@ -91,7 +96,7 @@ class ODESys:
 
         propagated_state_syms, stationary_state_syms, free_syms = self.sort_symbols(
             dy_dtD)
-        symsD = munchify({'t': tSym,
+        symsD = Box({'t': tSym,
                                'dimensions': dims.symbols,
                                'state': propagated_state_syms + stationary_state_syms,
                                'stationary_state': [],  # Not yet used
@@ -116,7 +121,7 @@ class ODESys:
         self.sim_size = int(len(dy_dtD) * np.product(dims.shape))
         self.state_shape = tuple([len(dy_dtD), *dims.shape])
         self.state_func_signature = state_func_signature
-        self.constantsD = {sym:None for sym in constant_syms}
+        self.constantsD = {sym:None for sym in constant_syms} # TO CHECK
 
         #print(self.symsD)
         #print(f"Signature for state_dep_funcs: {state_func_signature}")
@@ -126,14 +131,19 @@ class ODESys:
         # * save original symbol breakdown
         # * save the substitutions and symbol mappings needed to get this
         # * save the original state_function_signature.
-        # * make a new dy_dtD with real and imaginary symbols seperated
-        # * make a new state_dep_func signature
+        # * Split complex symbollic expressions into two:
+        #   * make a new dy_dtD with real and imaginary symbols seperated -#
+        #   * make a new, expanded list of constant expressions
+        #   * intermediate expressions... may be able to be kept as is, if they're just going into user code (which will be complex anyway)... but will need it's inputs to be real (outputs can be complex)
+        #
+        # * make a new state_dep_func signature with the real/imaginary components of arguments seperated
+        # * state_dependent functions and driving functions are handled later in the relevant set_ methods
         if bDecompose_to_re_im:
             dy_dtD_new, complex_subsD, symbol_mapD = ut.expand_to_re_im(dy_dtD)
             if bTryToSimplify:
                 dy_dtD_new = {sym: ex.simplify() for sym, ex in dy_dtD_new.items()}
 
-            real_imag_conv = Munch(
+            real_imag_conv = Box(
                 symsD_orig = symsD,
                 dy_dtD_orig = dy_dtD,
                 state_func_signature_orig = state_func_signature,
@@ -143,17 +153,20 @@ class ODESys:
 
             propagated_state_syms, stationary_state_syms, free_syms = self.sort_symbols(
             dy_dtD_new)
-            symsD = munchify({'t': tSym,
+            symsD.state = propagated_state_syms + stationary_state_syms
+            #symsD.constants = 
+            symsD = Box({'t': tSym,
                                'dimensions': dims.symbols,
                                'state': propagated_state_syms + stationary_state_syms,
-                               'stationary_state': [],  # Not used
+                               'stationary_state': [],  # Not used yet
                                'driving': driving_syms,
-                               'unspecified': ut.list_diff(free_syms, driving_syms), #this isn't quite right
+                               'unspecified': ut.list_diff(free_syms, driving_syms), # TO CHECK
                                })
 
-            def ensure_list(el): return el if np.iterable(el) else [el]
-            state_func_signature_new = [ensure_list(symbol_mapD[sym])
-                              if sym in symbol_mapD else sym for sym in state_func_signature]
+            #def ensure_list(el): return el if np.iterable(el) else [el]
+            #state_func_signature_new = [ensure_list(symbol_mapD[sym])
+                              #if sym in symbol_mapD else sym for sym in state_func_signature]
+            #[[symbol_mapD[sym] if sym in symbol_mapD else sym for sym in ensure_list ]
 
             self.symsD =symsD
             self.state_func_signature = chain(*state_func_signature)
@@ -162,9 +175,10 @@ class ODESys:
             print("realified state dependent functions signature: {}".format(
                 state_func_signature))
         self.bDecompose_to_re_im = bDecompose_to_re_im
+
+
         self.state_dep_subs_D = {};
         self.state_dep_funcs_D = {};
-
         self.driving_funcs_D = {}
 
     def summary(self):
@@ -318,6 +332,33 @@ class ODESys:
         self.input_modifiers = ...
         #print(driving_funcs_D)
 
+    def set_constants(self, constantsD):
+        """Set multi-dimensional values that won't change during the simulation
+
+        They should represent the symbols that were given in the constructor
+
+        If the values are symbollic expressions, they will be evaluated first. Otherwise they are assumed to be numpy arrays.
+        
+
+        ... except we should probably actually not do this here...
+        """
+        numericalD = {}
+        for key in constantsD: # loop through the entries and evaluate if they're expressions (depending on dimensions only at this point)
+            in_syms = self.symsD.dimensions #+ symsD.unspecified
+            if isinstance(constantsD[key], sympy.Expr):
+                
+                evaluated  = sm.lambdify(in_syms, val, modules="numpy")(*self.dimensions.values())
+                constantsD_numerical[key]=  evaluated
+            # Now it's a numerical value. It might be complex however
+        if self.bDecompose_to_re_im:
+            constantsD_numerical, subsD, symbol_mapD = ut.expand_to_re_im(constantsD, bNumericalRHS = True)
+
+        self.constantsD = constantsD_numerical
+
+        return
+
+        
+
     def set_state_dependence(self, state_dep_funcs_D={}, bAlreadyRealified=False):
         """Functions that depend on state and time,
         but not history.
@@ -333,7 +374,7 @@ class ODESys:
 
         # DECOMPOSE TO REAL/IMAGINARY PARTS-----------------------------------
         if self.bDecompose_to_re_im and not bAlreadyRealified:  # This is ugly, and ends up calling the function twice if it represents a complex value. Tensorflow (which is mainly why this exists) may sort it out on the compilation stage though.
-            # To fix for numpy,  we'd need to allow a single function to return two symbols.
+            # To fix for numpy,  we'd need to allow a single function to return the value for two symbols.
             nDims = len(self.state_shape) - 1
             nStates = len(self.symsD_orig.prop_state_syms)
             nDriving = len(self.symsD_orig.driving_syms)
@@ -342,8 +383,8 @@ class ODESys:
             complex_subsD = self.real_imag_conv.complex_subsD
 
             which_complex_in = [0] + nDims*[0] + \
-                [0 if sym.is_real else 1 for sym in symsD_orig['prop_state_syms']] + \
-                [0 if sym.is_real else 1 for sym in symsD_orig['driving_syms']]
+                [0 if sym.is_real else 1 for sym in symsD_orig['state']] + \
+                [0 if sym.is_real else 1 for sym in symsD_orig['driving']]
             state_dep_funcs_D_ri = {}
             for sym, F in state_dep_funcs_D.items(): 
                 # F_flat takes flattened complex inputs
@@ -420,8 +461,10 @@ class ODESys:
             model= ModelNumpy(d_dt_fast, initial_state, self._output_func, **model_kwargs)
 
         elif backend == 'tensorflow':
-            D_Dt_Fast = D_Dt_Fast_TF
-            model = ModelTensorflow(...)
+            #D_Dt_Fast = D_Dt_Fast_TF
+            #model = ModelTensorflow(...)
+            d_dt_fast = D_Dt_Fast_TF(self.symsD.t, self.symsD.dimensions, self.dims.axes.values(), dy_dtD, self.driving_funcs_D, intermediate_calcs_subbed, self.state_dep_funcs_D, constantsD =self.constantsD, bForceStateDimensions=bForceStateDimensions, dtype = self.sim_dtype)
+            model= ModelTensorflow(d_dt_fast, initial_state, self._output_func, **model_kwargs)
         else:
             raise ValueError(f"Don't understand the backend: {self.backend}")
 
@@ -432,6 +475,7 @@ class ODESys:
             """
             raise NotImplementedError()
         return model
+
 
 
 
