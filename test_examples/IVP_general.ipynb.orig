@@ -1,0 +1,626 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Simple demonstration of using spyIVP independently \n",
+    "\n",
+    "## What is it?\n",
+    "A numerical IVP thingy which lets you define the problem via symbollic elements, using the great python library [sympy](http://www.sympy.org).\n",
+    "\n",
+    "In case you want to try and use it more generally, here's some notes and examples.\n",
+    "\n",
+    "It's a little bit like Mathematica's NDSolve, but much less functional. NDSolve obviously is way more powerful for solving general equations (including PDEs).  But spyIVP can address a range of useful problems, and has (or will have) a few features that aren't easily reproduced in Mathematica.  Overall it is less of a 'black-box' than NDSolve, for better or worse.\n",
+    "\n",
+    "## Some useful features: \n",
+    "1. Can easily add explicit numerical code ( can in Mathematica too, but more hoops)\n",
+    "2. Can (shortly) integrate with high performance backends like tensorflow, both for increased speed and to enable automatic differentiation.\n",
+    "3. The driving use case is ensembles of similar atoms interacting by long-range electric fields: large ensembles of states with long-range coupling. It's not clear to me that Mathematica can handle these effectively.\n",
+    "\n",
+    "However, if you're problem isn't aready well adapted to the type of problem this was designed for, you're probably better off looking elsewhere. \n",
+    "\n",
+    "Other python ODE solving python packages that may be more appropriate for general use:\n",
+    "\n",
+    "* https://github.com/neurophysik/jitcode,\n",
+    "* http://bjodah.github.io/pyodesys/latest/index.html\n",
+    "\n",
+    "They both seem more powerful, could likely replace this package for even the desired purpose. However I only learned about them after writing this, and I haven't tried them. To my mind it does seem unlikely that they'll be easily extended to large scales or to automatic differentiation of the whole system as is possible with Tensorflow, but I haven't tried.\n",
+    "\n",
+    "Further, the Julia package [DifferentialEquations.jl](https://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=&cad=rja&uact=8&ved=2ahUKEwjkxpr_5PryAhVlxTgGHcGmAnwQFnoECAIQAQ&url=https%3A%2F%2Fdiffeq.sciml.ai%2Fstable%2Ftutorials%2Fode_example%2F&usg=AOvVaw1zBaPCy8uzU9t5n26-mIRa)\n",
+    " has come a _long_ way since I first saw it, and may well make this totally redundant. If you just want to solve DEs and you're familiar with Julia, you should probably go check that out first.\n",
+    "\n",
+    "# Examples\n",
+    "\n",
+    "Mostly spyIVP was written to enable assembling/solving ensemble systems described by master-equations, in python. That is described in [Solving master equations]. \n",
+    "\n",
+    "But it's fun to solve ODEs more generally, so here's some projectile motion: In particular, this handles an ensemble of interacting projectiles quite easily and efficiently.\n",
+    "\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Imports"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%matplotlib inline\n",
+    "%load_ext autoreload\n",
+    "%autoreload 2\n",
+    "from pylab import *\n",
+    "from spylind import spyIVP as so\n",
+    "import sympy as sm;\n",
+    "\n",
+    "#from numpy import warnings\n",
+    "#warnings.simplefilter('error', VisibleDeprecationWarning)\n",
+    "sm.init_printing()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Projectile motion\n",
+    "\n",
+    "$$\\frac{dx}{dt} = vx$$\n",
+    "$$\\frac{dy}{dt} = vy$$\n",
+    "\n",
+    "$$\\frac{dv_x}{dt} = g$$\n",
+    "$$\\frac{dv_y}{dt} = 0$$"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "xS, yS, vxS, vyS = sm.symbols(\"x, y, v_x, v_y\", real=True)\n",
+    "vxS = sm.symbols('v_x', complex=True)\n",
+    "g= -10.0\n",
+    "dy_dtD = {xS:vxS, \n",
+    "       yS:vyS,\n",
+    "       vxS:0,\n",
+    "       vyS:g }"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ode_s = so.ODESys(dy_dtD,  trans_dims={}, bDecompose_to_re_im=False)\n",
+    "ode_s.set_initial_state({xS:0,yS:0,vxS:10,vyS:10}) \n",
+    "model = ode_s.setup_model()\n",
+    "#model = ode_s.setup_model(backend='tensorflow')\n",
+    "tSteps = linspace(0,2,30)\n",
+    "result =model.integrate(tSteps)\n",
+    "\n",
+    "#sm.ode\n",
+    "plot(tSteps, result)\n",
+    "xlabel('t')\n",
+    "legend([f'${sym}$'for sym in dy_dtD.keys()])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Check the analytical solution for fun:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "tS = sm.symbols(\"t\")\n",
+    "xS = sm.Function('x')(tS)\n",
+    "vxS = sm.Function('v_x')(tS)\n",
+    "yS = sm.Function('y')(tS)\n",
+    "vyS = sm.Function('v_y')(tS)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from sympy.solvers import ode\n",
+    "display(sm.dsolve([sm.Eq(xS.diff(), vxS), sm.Eq(vxS.diff(), 0)])[0])\n",
+    "eqL = [sm.Eq(yS.diff(),vyS), sm.Eq(vyS.diff(), g)]\n",
+    "sm.dsolve(sm.Eq(yS.diff(), g*tS) )"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "where C_1 and C_2 are both 10 in the above. So check this against the result above:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "tEff = tSteps #+ (tSteps[1]-tSteps[0])/2\n",
+    "sym_res = dict(\n",
+    "    x= 10 *tEff,\n",
+    "    y = 10*tEff -5*tEff**2\n",
+    "    )\n",
+    "assert(allclose(result[:,0], sym_res['x']))\n",
+    "assert(allclose(result[:,1], sym_res['y']))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "plot(tSteps, result[:,0])\n",
+    "plot(tEff, sym_res['x'])\n",
+    "figure()\n",
+    "plot(tSteps, result[:,1])\n",
+    "plot(tEff, sym_res['y'])"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## An ensemble of non-interacting projectiles:\n",
+    "\n",
+    "We'll introduce a '$z$' axis. The initial velocity of these projectiles varies along $z$. Further, for some reason the force of gravity is fluctuation, according to some external parameter we'll label $G$. We'll define this numerically, using a 'driving function'. That just means a numerical function that takes $t$ as a parameter and returns the value of that symbol. Here we'll make it sinusoidally varying."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "\u001b[0;31mSignature:\u001b[0m \u001b[0mode_s\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mset_initial_state\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;34m{\u001b[0m\u001b[0;34m}\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mbRealified\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;32mFalse\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+       "\u001b[0;31mSource:\u001b[0m   \n",
+       "    \u001b[0;32mdef\u001b[0m \u001b[0mset_initial_state\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mpar0\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;34m{\u001b[0m\u001b[0;34m}\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mbRealified\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;32mFalse\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;34m\"\"\" Set the initial paramters. The main logic here is to account for different ways they might be expressed.\u001b[0m\n",
+       "\u001b[0;34m        Possibilities are:\u001b[0m\n",
+       "\u001b[0;34m            * A dictionary of symbol: initial state pairs\u001b[0m\n",
+       "\u001b[0;34m            * A list of initial states in the appropriate order\u001b[0m\n",
+       "\u001b[0;34m            * An array of initial states, appropriately sized according to all the dimensions\u001b[0m\n",
+       "\u001b[0;34m            * The input could be needing to be 'realified' to match the new real-only variables.\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m        Parameters:\u001b[0m\n",
+       "\u001b[0;34m        -----------\u001b[0m\n",
+       "\u001b[0;34m        par0: dictionary of {symbol:state} pairs, or an iterable of states (in the right order)\u001b[0m\n",
+       "\u001b[0;34m        bRealified: whether it's being specified in the 'realified' format or\u001b[0m\n",
+       "\u001b[0;34m            original (potentially) complex format. Relevant only if we're using automatic\u001b[0m\n",
+       "\u001b[0;34m            decomposition to real-imaginary parts.\u001b[0m\n",
+       "\u001b[0;34m        \"\"\"\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;31m# Do something to make sure dimensions, order of symbols, are right\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;31m#missing_symbols = set(par0.keys()).difference(self.symsD.prop_state_syms)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;32mif\u001b[0m \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mbDecompose_to_re_im\u001b[0m \u001b[0;32mand\u001b[0m \u001b[0;32mnot\u001b[0m \u001b[0mbRealified\u001b[0m\u001b[0;34m:\u001b[0m  \u001b[0;31m# We have a complex input, but we're\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                                                \u001b[0;31m#doing a real-only sim. Need to map complex to real/im\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;31m# Map from position in self.state_syms to self.dy_dD\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;31m# par0:{p1:, p2:, p3:} -> par0{p1r:, p1i:, p2r:, p2i:, p3r:, p3i:}\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;32mif\u001b[0m \u001b[0;32mnot\u001b[0m \u001b[0misinstance\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mMapping\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m \u001b[0;31m# if it's a list, not a dictionary, we'll make it a dict\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                \u001b[0mpar0\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mdict\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mzip\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mreal_imag_conv\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msymsD_orig\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstate\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mpar0\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0mpar0\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0m_\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0m_\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mut\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mexpand_to_re_im\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mbNumericalRHS\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0;32mTrue\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mNpars\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mlen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m)\u001b[0m  \u001b[0;31m# Should make sure this matches dy_dtD\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;32mif\u001b[0m \u001b[0misinstance\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mMapping\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0mpar0\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0;34m[\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0mkey\u001b[0m\u001b[0;34m]\u001b[0m \u001b[0;32mfor\u001b[0m \u001b[0mkey\u001b[0m \u001b[0;32min\u001b[0m \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msymsD\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mstate\u001b[0m\u001b[0;34m]\u001b[0m \u001b[0;31m#order them correctly\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                             \u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;32mdef\u001b[0m \u001b[0mexpand_shape\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0marr\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m \u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;34m\"\"\"Covers the case when @arr is a scalar, a full array with same size as the state space, or an array broadcastable to that.\"\"\"\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;32mif\u001b[0m \u001b[0mnp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0marray\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0marr\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mshape\u001b[0m \u001b[0;34m!=\u001b[0m \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mdims\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mshape\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                \u001b[0marr\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0marr\u001b[0m\u001b[0;34m*\u001b[0m\u001b[0mnp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mones\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mdims\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mshape\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mdtype\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msim_dtype\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;32mreturn\u001b[0m \u001b[0marr\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0mpar0\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mnp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0marray\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0mexpand_shape\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0marr\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;32mfor\u001b[0m \u001b[0marr\u001b[0m \u001b[0;32min\u001b[0m \u001b[0mpar0\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mdtype\u001b[0m\u001b[0;34m=\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msim_dtype\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0;32mif\u001b[0m \u001b[0;36m0\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;31m# by now par0 should an iterable of paramters in the required order. Now we'll broadcast it to\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;31m# the other dimensions.\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;31m# Assume a uniform initial state\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m            \u001b[0;32mif\u001b[0m \u001b[0mpar0\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mndim\u001b[0m \u001b[0;34m==\u001b[0m \u001b[0;36m1\u001b[0m \u001b[0;32mand\u001b[0m \u001b[0mlen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mdimAxes\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;34m>\u001b[0m \u001b[0;36m0\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                \u001b[0mpar0\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mpar0\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mreshape\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;34m-\u001b[0m\u001b[0;36m1\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0;34m*\u001b[0m\u001b[0mlen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mdimAxes\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;34m*\u001b[0m \u001b[0;34m[\u001b[0m\u001b[0;36m1\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                \u001b[0mnewShape\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0;34m(\u001b[0m\u001b[0mlen\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msymsD\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0;34m'prop_state_syms'\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                            \u001b[0;34m*\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0mnp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0msize\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0max\u001b[0m\u001b[0;34m)\u001b[0m \u001b[0;32mfor\u001b[0m \u001b[0max\u001b[0m \u001b[0;32min\u001b[0m \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mdimAxes\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m                \u001b[0mpar0\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mnp\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mbroadcast_to\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0mpar0\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mnewShape\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m        \u001b[0mself\u001b[0m\u001b[0;34m.\u001b[0m\u001b[0mpar0\u001b[0m \u001b[0;34m=\u001b[0m \u001b[0mpar0\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+       "\u001b[0;31mFile:\u001b[0m      ~/dev_local/spylind/spylind/spyIVP.py\n",
+       "\u001b[0;31mType:\u001b[0m      method\n"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "ode_s.set_initial_state??"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "xS, yS, vxS, vyS, GS = sm.symbols(\"x, y, v_x, v_y, G\", real=True)\n",
+    "zS = sm.symbols(\"z\", real=True)\n",
+    "g= -10.0\n",
+    "dy_dtD = {xS:vxS,  # The values are the derivatves of the symbol on the LHS.\n",
+    "       yS:vyS + zS ,\n",
+    "       vxS:1,\n",
+    "       vyS: g  + GS  }\n",
+    "\n",
+    "ode_s = so.ODESys(dy_dtD, trans_dims={zS:linspace(-4,4,10)}, driving_syms=[GS],)\n",
+    "ode_s.set_initial_state({xS:0,yS:0,vxS:10,vyS:10}) \n",
+    "#ode_s.set_driving({GS: lambda t: 100*np.sin(2*pi*5*t)})\n",
+    "t_drv = linspace(0,2,200)\n",
+    "ode_s.set_driving({GS: [t_drv, 100*np.sin(2*pi*5*t_drv)] })\n",
+    "\n",
+    "model = ode_s.setup_model(bForceStateDimensions=True)\n",
+    "tSteps = linspace(0,1,100)\n",
+    "arr = model.integrate(tSteps)\n",
+    "\n",
+    "plot(tSteps, arr[:,:,0])\n",
+    "xlabel('t')\n",
+    "legend(dy_dtD.keys())\n",
+    "figure()\n",
+    "plot(tSteps, arr[:,:,-1])\n",
+    "xlabel('t')\n",
+    "legend(dy_dtD.keys())\n",
+    "figure()\n",
+    "imshow(arr[:,1,:], aspect='auto')\n",
+    "ylabel('time')\n",
+    "xlabel('z')\n",
+    "title('position y vs time and z')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%debug"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## An ensemble of interacting projectiles (via a mutual attraction)\n",
+    "\n",
+    "What happens if the projectiles experience a force pushing toward their center-of-mass, proportional to the particles' distance from it?\n",
+    "\n",
+    "The interaction is $F_j = \\sum_{i\\neq j}^n k \\frac{y_i-y_j}{|(y_i-y_j)^3|}$. This is infinite as particles get close, which is obviously a problem for a numerical simulation. We'll take the easy option of damping it at close range.\n",
+    "\n",
+    "The coupling term is represented by a 'state dependent' python function, which evaluates this numerically.\n",
+    "\n",
+    "In principle, we could instead do add symbollic terms into the equations of motion to account for this. One reason not to is that sympy tends not to handle the evaluation of integrals or summations very elegantly- and while this example would probably work ok, others won't. Aside from this, a state-dependent call is often one of the slowest parts of the simulation, and it pays to write it by hand to avoid recalculating parts that don't need recalculation.\n",
+    "\n",
+    "\n",
+    "\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/markdown": [
+       "**Function signatures:**"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Markdown object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "state_dep_f( $\\displaystyle t$, dimAxes = $[ \\displaystyle I ]$, state = $[ \\displaystyle x, \\displaystyle y, \\displaystyle v_{x}, \\displaystyle v_{y} ]$, driving= $[  ]$, intermediate = $[  ]$ )"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Markdown object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "output_f( $\\displaystyle t$, dimAxes = $[ \\displaystyle I ]$, state = $[ \\displaystyle x, \\displaystyle y, \\displaystyle v_{x}, \\displaystyle v_{y} ]$, driving= $[  ]$, state_dependent= $[  ]$ , intermediate = $[  ]$ )"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Markdown object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/markdown": [
+       "**Variables:**"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Markdown object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Dimensions: [ $\\displaystyle I$ ] : (10,)"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "State variables: [ $\\displaystyle x$, $\\displaystyle y$, $\\displaystyle v_{x}$, $\\displaystyle v_{y}$ ]"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Driving symbols: [  ]"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "State-dep symbols: [  ]"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Constant symbols: [  ]"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Free symbols: [ $\\displaystyle k$ ]"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "State size: 0.04 k vars"
+      ],
+      "text/plain": [
+       "<IPython.core.display.Latex object>"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "xS, yS, vxS, vyS, kS = sm.symbols(\"x, y, v_x, v_y, k\", real=True)\n",
+    "indS = sm.symbols(\"I\", real=True)\n",
+    "g= -10.0\n",
+    "dy_dtD = {xS:vxS, \n",
+    "       yS:vyS,\n",
+    "       vxS:1,\n",
+    "       vyS: g + 30*kS }\n",
+    "\n",
+    "ode_s = so.ODESys(dy_dtD,  trans_dims={indS:arange(10)})\n",
+    "ode_s.summary()\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\n",
+    "ode_s.set_initial_state({xS:0*ones(10),yS:linspace(-10,10,10),vxS:10*ones(10),vyS:15*ones(10) }) \n",
+    "def couplingF(t, dimAxes, state, driving_vals, _intermediate, _constants):\n",
+    "    x,y,vx,vy = state\n",
+    "    diff = y[:,newaxis] - y[newaxis,:]\n",
+    "    diff[np.diag_indices_from(diff)]=1e20 # Stop divide by zeros due to distance of particles from themselves\n",
+    "    sq_diff = diff**2 / (1- exp(-(diff/0.3)**2 ))#  The denominator is to damp the interaction for close particles, to avodi it blowing up\n",
+    "    F = -np.sum(sign(diff)/sq_diff, axis=1)\n",
+    "    return F\n",
+    "ode_s.set_state_dependence({kS:couplingF})\n",
+    "\n",
+    "model = ode_s.setup_model(bForceStateDimensions=True)\n",
+    "tSteps = linspace(0,3.,2000)\n",
+    "arr = model.integrate(tSteps)\n",
+    "\n",
+    "plot(tSteps, arr[:,1,:].real)\n",
+    "xlabel('t')\n",
+    "ylabel('y')\n",
+    "title(\"mutually attractive projectiles\")\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Using a custom output function\n",
+    "By default, we store the whole state at every time step. This can eat up a lot of memory however, and often times we only care about a single parameter. So we can also add a function to evaluate at every step, the result of which will be saved instead of the full state.\n",
+    "\n",
+    "Below we'll repeat the simulation above, but this time only saving the particle mean position."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def output_mean_state(state):\n",
+    "    mean_state = state.mean(axis=1)\n",
+    "    return mean_state\n",
+    "ode_s.set_outputs(output_mean_state)\n",
+    "\n",
+    "\n",
+    "model = ode_s.setup_model()\n",
+    "arr =model.integrate(tSteps)\n",
+    "\n",
+    "plot(tSteps, arr[:,:])\n",
+    "xlabel('t')\n",
+    "ylabel('y')\n",
+    "title(\"mutually attractive projectiles, mean positions\")\n",
+    "legend(ode_s.symsD.state)\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "nbdime-conflicts": {
+   "local_diff": [
+    {
+     "key": "language_info",
+     "op": "add",
+     "value": {
+      "codemirror_mode": {
+       "name": "ipython",
+       "version": 3
+      },
+      "file_extension": ".py",
+      "mimetype": "text/x-python",
+      "name": "python",
+      "nbconvert_exporter": "python",
+      "pygments_lexer": "ipython3",
+      "version": "3.10.6"
+     }
+    }
+   ],
+   "remote_diff": [
+    {
+     "key": "language_info",
+     "op": "add",
+     "value": {
+      "codemirror_mode": {
+       "name": "ipython",
+       "version": 3
+      },
+      "file_extension": ".py",
+      "mimetype": "text/x-python",
+      "name": "python",
+      "nbconvert_exporter": "python",
+      "pygments_lexer": "ipython3",
+      "version": "3.8.10"
+     }
+    }
+   ]
+  },
+  "toc": {
+   "base_numbering": 1,
+   "nav_menu": {},
+   "number_sections": true,
+   "sideBar": true,
+   "skip_h1_title": false,
+   "title_cell": "Table of Contents",
+   "title_sidebar": "Contents",
+   "toc_cell": false,
+   "toc_position": {},
+   "toc_section_display": true,
+   "toc_window_display": false
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}

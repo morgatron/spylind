@@ -118,7 +118,7 @@ class ODESys:
         self.dims = dims
         self.dy_dtD = dy_dtD
         self.intermediate_calcs = intermediate_calcs
-        self.sim_size = int(len(dy_dtD) * np.product(dims.shape))
+        self.sim_size = int(len(dy_dtD) * np.prod(dims.shape))
         self.state_shape = tuple([len(dy_dtD), *dims.shape])
         self.state_func_signature = state_func_signature
         self.constantsD = {sym:None for sym in constant_syms} # TO CHECK
@@ -197,7 +197,7 @@ class ODESys:
         display(Latex(f"State-dep symbols: {ltx_repr_list(self.symsD.state_dep)}") )
         display(Latex(f"Constant symbols: {ltx_repr_list(self.symsD.constants)}") )
         display(Latex(f"Free symbols: {ltx_repr_list(self.symsD.unspecified)}") )
-        state_size = np.product([len(self.symsD.state), *self.dims.shape])
+        state_size = np.prod([len(self.symsD.state), *self.dims.shape])
         display(Latex(f"State size: {state_size/1e3} k vars"))
         #Ideally test here wether running in an Ipython notebook
         # Plain text version
@@ -415,8 +415,8 @@ class ODESys:
         """ This is the function called at every output step. If not given, it'll just output the system state variables.
         """
 
+        self.outputL=[]
         if f is None: # if we
-            self.outputL = []
             def f(t, sim_state, *args):
                 res = sim_state
                 return res

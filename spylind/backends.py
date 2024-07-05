@@ -83,8 +83,9 @@ class ModelNumpy(Model):# Should really be called ModelScipy
 
     def calc_output(self, t,state):
         #state = self._unflatten(state_flat)
-        driving_vals, intermediate_vals, state_dep_vals = self.d_dtF_orig._calc_all_requirements(t,state)
-        return self._calc_output_user(t, *self.d_dtF_orig.dimAxes, *state, *driving_vals, *state_dep_vals, *self.d_dtF_orig.constant_vals)
+        return self._calc_output_user(t,state)
+        #driving_vals, intermediate_vals, state_dep_vals = self.d_dtF_orig._calc_all_requirements(t,state)
+        #return self._calc_output_user(t, *self.d_dtF_orig.dimAxes, *state, *driving_vals, *state_dep_vals, *self.d_dtF_orig.constant_vals)
 
     def integrate(self, tSteps, initial_state=None, paramD={}, **kwargs):
         if initial_state is None:

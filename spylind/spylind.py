@@ -22,11 +22,12 @@ def isiterable(obj):
 
 def toDense(qobj):
     if type(qobj) is q.Qobj:
-        return qobj.data.todense()
+        return qobj.data.to_array()
     else:
         return qobj
 
 def SpreSmSp(op):
+    op = toDense(op)
     opN=op.shape[0]
     opSM = sm.SparseMatrix(op)
     #This is essentially just a sparse block-matrix
@@ -34,6 +35,7 @@ def SpreSmSp(op):
     return SpreS
 
 def SpostSmSp(op):
+    op = toDense(op)
     N=op.shape[0]
 
     dct = {(N*l,N*k ):
@@ -298,7 +300,7 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
         else:
             print("no coefficient for a hamiltonian element. Will assume it's 1")
             sym = 1.
-            op = sm.SparseMatrix(el)
+            op = sm.SparseMatrix(toDense(el))
         L += sym * liouvillianS(op)
 
     for el in c_opL[:]:
@@ -307,7 +309,7 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
         else:
             coef = 1.
             op = el
-        op = sm.SparseMatrix(op)
+        op = sm.SparseMatrix(toDense(op))
         L += coef * liouvillianS(None, cOpL=[op])
 
     # Get drho_dt

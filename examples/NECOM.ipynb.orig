@@ -1,0 +1,535 @@
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "5da272eb-d738-48c9-8dff-69eda84f272e",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%matplotlib inline\n",
+    "%load_ext autoreload\n",
+    "%autoreload 2\n",
+    "import numpy as np\n",
+    "<<<<<<< local\n",
+    "#import more_itertools as mit\n",
+    "=======\n",
+    "import more_itertools as mit\n",
+    ">>>>>>> remote\n",
+    "from pylab import *\n",
+    "from builtins import sum\n",
+    "from spylind import spyIVP as svp\n",
+    "from spylind import spylind as spl \n",
+    "from spylind import utils as ut\n",
+    "import sympy as sm\n",
+    "import qutip as q\n",
+    "from functools import reduce\n",
+    "\n",
+    "def S(inp):\n",
+    "    \"\"\"Make an object sympy friendly\n",
+    "    \"\"\"\n",
+    "    try:\n",
+    "        obj = inp.full()\n",
+    "    except:\n",
+    "        obj = inp\n",
+    "    return sm.sympify(obj)\n",
+    "\n",
+    "def dot(arr1, arr2):\n",
+    "    return reduce(lambda x,y: x+y, map(lambda val: val[0]*val[1], zip(arr1, arr2)))\n",
+    "sm.init_printing() # this is needed to display equations nicely\n",
+    "\n",
+    "S(q.sigmax())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "fd8586d6-7a76-4f19-9311-3af9b3fe3b71",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "spl.getRhoS(2, base_symbol = \"R\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "7ed7e716-349c-49b7-bf06-82269cbf9d30",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\n",
+    "BvS = [BxS, ByS, BzS]\n",
+    "sigmavS = [M(op) for op in [q.sigmax(), q.sigmay(), q.sigmaz()]]\n",
+    "dot(BvS, sigmavS)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "443ac9b0-e993-4ad8-882c-b517db077a8c",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "B_vS = sm.Matrix([BxS, ByS, BzS])\n",
+    "B_vS.dot(Sig_vS)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "ba432324-3511-4eba-952d-d5ae28f440fc",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Symbols used. It's a good idea to define real=True if the symbols are in fact real\n",
+    "BxS, ByS, BzS = sm.symbols(\"B_x, B_y, B_z\", real=True) # Real and imaginary parts of the driving field\n",
+    "BvS = [BxS, ByS, BzS]\n",
+    "tS, T1nS, gnS = sm.symbols('t, T_1n, g_n', real=True) # The symbol used for time\n",
+    "rho_n_S = spl.getRhoS(2, \"\\\\rho\")\n",
+    "\n",
+    "K1 = q.basis(2,0)\n",
+    "K2 = q.basis(2,1)\n",
+    "\n",
+    "\n",
+    "sigmav = [q.sigmax(), q.sigmay(), q.sigmaz()]\n",
+    "# Hamiltonian description. Qutip operators with sympy coeficients.\n",
+    "H0 = K2*K2.dag() # Excited state is detuned from the ground state\n",
+    "c_opL = [ [1/sm.sqrt(T1nS), q.sigmap() ],\n",
+    "         [1, (BxS*sm.Matrix(q.sigmax()) + ByS*sm.Matrix(q.sigmay()) + BzS*sm.Matrix(q.sigmaz()) )/sm.sqrt(BxS**2 + ByS**2 + BzS**2)],\n",
+    "        ] # 1/T1 * |1><2|, i.e. decay from state |2> -> |1> \n",
+    "#\n",
+    "H_desc = [H0, [BxS*gnS, q.sigmax()], [ByS*gnS, q.sigmay()], [BzS*gnS, q.sigmaz()] ] #H= H0 +  Er*sigmax + Ei*sigmay\n",
+    "evoD_n, exMag_n=spl.makeMESymb(H_desc, c_opL=c_opL, \n",
+    "                  e_opL = [q.sigmax(), q.sigmay(), q.sigmaz()], \n",
+    "                  rhoS = rho_n_S\n",
+    "                 )\n",
+    "display(\"Bloch equations:\")\n",
+    "#display(pretty_eq)\n",
+    "display(exMag_n)\n",
+    "#evoD"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "0294164d-f7dd-4264-b352-5d27c625d114",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "Kx_m, Kx_p = q.sigmax().eigenstates()[1]\n",
+    "Ky_m, Ky_p = q.sigmay().eigenstates()[1]\n",
+    "Kz_p, Kz_m = q.basis(2,0), q.basis(2,1)\n",
+    "\n",
+    "Pmp_up_ops = [Kx_p*Kx_m.dag(),\n",
+    "       Ky_p*Ky_m.dag(),\n",
+    "       Kz_p*Kz_m.dag()]\n",
+    "Pmp_dn_ops = [Kx_m*Kx_p.dag(),\n",
+    "       Ky_m*Ky_p.dag(),\n",
+    "       Kz_m*Kz_p.dag()]\n",
+    "\n",
+    "MxS, MyS, MzS = sm.symbols(\"Mx, My, Mz\")\n",
+    "\n",
+    "dot(MxS)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 11,
+   "id": "e6253230-ff8e-4150-9491-e59d0ed8e7c6",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "\u001b[0;31mSignature:\u001b[0m \u001b[0mdot\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0marr1\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0marr2\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+       "\u001b[0;31mDocstring:\u001b[0m <no docstring>\n",
+       "\u001b[0;31mSource:\u001b[0m   \n",
+       "\u001b[0;32mdef\u001b[0m \u001b[0mdot\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0marr1\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0marr2\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m:\u001b[0m\u001b[0;34m\u001b[0m\n",
+       "\u001b[0;34m\u001b[0m    \u001b[0;32mreturn\u001b[0m \u001b[0mreduce\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;32mlambda\u001b[0m \u001b[0mx\u001b[0m\u001b[0;34m,\u001b[0m\u001b[0my\u001b[0m\u001b[0;34m:\u001b[0m \u001b[0mx\u001b[0m\u001b[0;34m+\u001b[0m\u001b[0my\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mmap\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0;32mlambda\u001b[0m \u001b[0mval\u001b[0m\u001b[0;34m:\u001b[0m \u001b[0mval\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0;36m0\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m*\u001b[0m\u001b[0mval\u001b[0m\u001b[0;34m[\u001b[0m\u001b[0;36m1\u001b[0m\u001b[0;34m]\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0mzip\u001b[0m\u001b[0;34m(\u001b[0m\u001b[0marr1\u001b[0m\u001b[0;34m,\u001b[0m \u001b[0marr2\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m)\u001b[0m\u001b[0;34m\u001b[0m\u001b[0;34m\u001b[0m\u001b[0m\n",
+       "\u001b[0;31mFile:\u001b[0m      /tmp/ipykernel_331770/3920095376.py\n",
+       "\u001b[0;31mType:\u001b[0m      function\n"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "dot??"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "94123667-f92a-4b15-be62-451883ab9bfc",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "display(Kx_p)\n",
+    "Ky_p"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 104,
+   "id": "f7a0f0ac-804f-42d8-83f2-e9f7ea86a1c8",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [1]], shape = (2, 1), type = ket\\begin{equation*}\\left(\\begin{array}{*{11}c}0.707\\\\0.707\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [1]], shape = (2, 1), type = ket\n",
+       "Qobj data =\n",
+       "[[0.70710678]\n",
+       " [0.70710678]]"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [1]], shape = (2, 1), type = ket\\begin{equation*}\\left(\\begin{array}{*{11}c}-0.707\\\\-0.707j\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [1]], shape = (2, 1), type = ket\n",
+       "Qobj data =\n",
+       "[[-0.70710678+0.j        ]\n",
+       " [ 0.        -0.70710678j]]"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "display((q.sigmay() + 1j*q.sigmaz())/2*Kx_m*1j)\n",
+    "display((q.sigmaz() + 1j*q.sigmax())/2*Ky_m)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 92,
+   "id": "094d96cf-59eb-4211-ad1e-dee77698a89d",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\\begin{equation*}\\left(\\begin{array}{*{11}c}0.0 & 1.0\\\\0.0 & 0.0\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\n",
+       "Qobj data =\n",
+       "[[0. 1.]\n",
+       " [0. 0.]]"
+      ]
+     },
+     "execution_count": 92,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "q.sigmap()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 93,
+   "id": "6deff07d-2538-4495-ac4b-082f807ceb5b",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\\begin{equation*}\\left(\\begin{array}{*{11}c}0.0 & 1.0\\\\0.0 & 0.0\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\n",
+       "Qobj data =\n",
+       "[[0. 1.]\n",
+       " [0. 0.]]"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\\begin{equation*}\\left(\\begin{array}{*{11}c}0.0 & 1.0\\\\0.0 & 0.0\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\n",
+       "Qobj data =\n",
+       "[[0. 1.]\n",
+       " [0. 0.]]"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\\begin{equation*}\\left(\\begin{array}{*{11}c}0.0 & 0.0\\\\1.0 & 0.0\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\n",
+       "Qobj data =\n",
+       "[[0. 0.]\n",
+       " [1. 0.]]"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": [
+    "display(K1*K2.dag())\n",
+    "display((q.sigmax() + 1j*q.sigmay())/2 )\n",
+    "display((q.sigmax() - 1j*q.sigmay())/2 )"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 73,
+   "id": "009495a7-123f-432a-b03d-c0dba785d470",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "sympy.tensor.array.dense_ndim_array.ImmutableDenseNDimArray"
+      ]
+     },
+     "execution_count": 73,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "obj=sm.sympify(K1.full())\n",
+    "type(obj)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 78,
+   "id": "01bf7c35-91b3-4bdf-87e5-11c54431ab03",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = True\n",
+       " Qobj data =\n",
+       " [[0. 1.]\n",
+       "  [1. 0.]],\n",
+       " Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = True\n",
+       " Qobj data =\n",
+       " [[0.+0.j 0.-1.j]\n",
+       "  [0.+1.j 0.+0.j]])"
+      ]
+     },
+     "execution_count": 78,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "q.sigmax(), q.sigmay()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 79,
+   "id": "181e7d0b-9983-4bf2-a34b-3d3c220d4e8b",
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/latex": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\\begin{equation*}\\left(\\begin{array}{*{11}c}0.0 & 1.0\\\\0.0 & 0.0\\\\\\end{array}\\right)\\end{equation*}"
+      ],
+      "text/plain": [
+       "Quantum object: dims = [[2], [2]], shape = (2, 2), type = oper, isherm = False\n",
+       "Qobj data =\n",
+       "[[0. 1.]\n",
+       " [0. 0.]]"
+      ]
+     },
+     "execution_count": 79,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "q.sigmap()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "6543c47a-243a-4467-9fca-9376ac2fbea3",
+   "metadata": {},
+   "source": [
+    "# Alkali\n",
+    "\n",
+    "## Interaction:\n",
+    "* Magnetic: Magnetization makes a field seen by the other species\n",
+    "* Spin-exchange: Chance of swapping spins between species. But due to different numbers of species, it looks more like a pumping along the polarisation axis. E.g. $<\\mathbf{\\sigma}> . <\\mathbf{S}>$\n",
+    "\n",
+    "$\\sigma^+_x"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "6ce781bb-903f-4e36-a56b-8c4c22eaa30a",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Symbols used. It's a good idea to define real=True if the symbols are in fact real\n",
+    "M = sm.Matrix\n",
+    "tS, T1eS, T2eS, geS = sm.symbols('t, T_1e, T_2e, g_e', real=True) # The symbol used for time\n",
+    "rho_e_S = spl.getRhoS(2, \"R\")\n",
+    "\n",
+    "K1 = q.basis(2,0)\n",
+    "K2 = q.basis(2,1)\n",
+    "\n",
+    "# Hamiltonian description. Qutip operators with sympy coeficients.\n",
+    "H0 = K2*K2.dag() # Excited state is detuned from the ground state\n",
+    "c_opL = [ [1/sm.sqrt(T1nS), q.sigmap() ],\n",
+    "         [1/sm.sqrt(T2eS), (BxS*M(q.sigmax()) + ByS*M(q.sigmay()) + BzS*M(q.sigmaz()) )/sm.sqrt(BxS**2 + ByS**2 + BzS**2)],\n",
+    "        ] # 1/T1 * |1><2|, i.e. decay from state |2> -> |1> \n",
+    "#\n",
+    "H_desc = [H0, [BxS*geS, q.sigmax()], [ByS*geS, q.sigmay()], [BzS*geS, q.sigmaz()] ] #H= H0 +  Er*sigmax + Ei*sigmay\n",
+    "evoD_e, exMag_e, pretty_eq=spl.makeMESymb(H_desc, c_opL=c_opL, e_opL = [q.sigmax(), q.sigmay(), q.sigmaz()], rhoS = spl.getRhoS(2, \"R\"), bReturnPrettyEquation=True)\n",
+    "display(\"Bloch equations:\")\n",
+    "#display(pretty_eq)\n",
+    "#evoD_e\n",
+    "display(exMag_e)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "69165404-54ea-4dd6-9f33-26cfe1e7aec4",
+   "metadata": {
+    "tags": []
+   },
+   "outputs": [],
+   "source": [
+    "T = q.tensor\n",
+    "# Symbols used. It's a good idea to define real=True if the symbols are in fact real\n",
+    "tS, T1S = sm.symbols('t, T_1', real=True) # The symbol used for time\n",
+    "BxS, ByS, BzS = sm.symbols(\"B_x, B_y, B_z\", real=True) # Real and imaginary parts of the driving field\n",
+    "ID_A,ID_B = q.identity(2), q.identity(2)\n",
+    "K1_A = T(q.basis(2,0),ID_B)\n",
+    "K2_A = T(q.basis(2,1),ID_B)\n",
+    "\n",
+    "K1_B = T(ID_A, q.basis(2,0))\n",
+    "K2_B = T(ID_A, q.basis(2,1))\n",
+    "\n",
+    "H_Bx = T(q.sigmax(), ID_B)  + T(ID_A, q.sigmax())\n",
+    "\n",
+    "# Hamiltonian description. Qutip operators with sympy coeficients.\n",
+    "H0 = K2*K2.dag() # Excited state is detuned from the ground state\n",
+    "c_opL = [ [1/sm.sqrt(T1S), q.sigmap() ],\n",
+    "         [1, (BxS*sm.Matrix(q.sigmax()) + ByS*sm.Matrix(q.sigmay()) + BzS*sm.Matrix(q.sigmaz()) )/sm.sqrt(BxS**2 + ByS**2 + BzS**2)],\n",
+    "        ] # 1/T1 * |1><2|, i.e. decay from state |2> -> |1> \n",
+    "#\n",
+    "H_desc = [H0, [BxS, q.sigmax()], [ByS, q.sigmay()], [BzS, q.sigmaz()] ] #H= H0 +  Er*sigmax + Ei*sigmay\n",
+    "evoD, ex_vals, pretty_eq=spl.makeMESymb(H_desc, c_opL=c_opL, e_opL = [], bReturnPrettyEquation=True)\n",
+    "display(\"Bloch equations:\")\n",
+    "display(pretty_eq)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "b97a5871-4d2f-49b7-9a81-f647d0f8bfc5",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "spl.getRhoS(2, \"R\")"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "f507bcb7-e389-4783-85f4-3feed3378ed0",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "sys.set_initial_state?"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "9a0a6087-a567-4beb-880c-b8212da91a88",
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\n",
+    "sys = svp.ODESys(evoD, trans_dims ={}, driving_syms=[BxS, ByS, BzS], tSym=tS)\n",
+    "sys.set_driving({BxS: lambda t: 0.0 if t<4 else 1, \n",
+    "                 ByS: lambda t: .1 if t<10 and t>6 else 0.0001,\n",
+    "                 BzS: lambda t: 1 }\n",
+    "               ) #\n",
+    "sys.set_initial_state(np.array([1,0,0]) )\n",
+    "model = sys.setup_model({T1S: 10}) # can substitute in any undefined parameters here\n",
+    "\n",
+    "# And finally run it\n",
+    "tSteps = linspace(0,10,1000)\n",
+    "out = model.integrate(tSteps)\n",
+    "\n",
+    "#Plot results (with nice legend)\n",
+    "figure()\n",
+    "for arr, sym in zip(out.swapaxes(0,1), sys.symsD.state):\n",
+    "    if sym.is_real:\n",
+    "        plot(tSteps,  arr.real, label =f\"${sym}$\" )\n",
+    "    else:\n",
+    "        plot(tSteps,  arr.real, label =f\"$\\Re({sym})$\" )\n",
+    "        plot(tSteps,  arr.imag, label =f\"$\\Im({sym})$\" )\n",
+    "legend()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "id": "7be7cef5-19a0-4449-bbe2-fbc9bc936069",
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
