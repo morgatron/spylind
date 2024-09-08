@@ -343,13 +343,15 @@ class ODESys:
 
         ... except we should probably actually not do this here...
         """
-        numericalD = {}
+        constantsD_numerical = {}
         for key in constantsD: # loop through the entries and evaluate if they're expressions (depending on dimensions only at this point)
             in_syms = self.symsD.dimensions #+ symsD.unspecified
-            if isinstance(constantsD[key], sympy.Expr):
+            if isinstance(constantsD[key], sm.Expr):
                 
                 evaluated  = sm.lambdify(in_syms, val, modules="numpy")(*self.dimensions.values())
                 constantsD_numerical[key]=  evaluated
+            else:
+                constantsD_numerical[key]= constantsD[key]
             # Now it's a numerical value. It might be complex however
         if self.bDecompose_to_re_im:
             constantsD_numerical, subsD, symbol_mapD = ut.expand_to_re_im(constantsD, bNumericalRHS = True)

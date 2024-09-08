@@ -47,7 +47,7 @@ class ModelNumpy(Model):# Should really be called ModelScipy
 
     outputL = []
     def __init__(self, d_dt, state_at_t0, output_func, state_shape=None, name =None, 
-            method='adams',atol = 1e-12, rtol=1e-6, max_step=0.1, input_modifiers={}, **kwargs):
+            method='adams',atol = 1e-10, rtol=1e-8, max_step=0.1, input_modifiers={}, **kwargs):
         """this is usually called by setup in ODESys"""
 
         if name is None:
@@ -64,6 +64,8 @@ class ModelNumpy(Model):# Should really be called ModelScipy
         #if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
         int_obj.set_integrator(name, max_step=max_step, method = method,
                              **kwargs)  # ,order=5) # or adams
+        #int_obj.set_integrator("lsoda", max_step=max_step,#, method = method,
+                             #**kwargs)  # ,order=5) # or adams
         self.scipy_integrator = int_obj
 
         if state_shape is None:
