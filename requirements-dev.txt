@@ -2,8 +2,10 @@
 # the documentation) but not necessarily required for _using_ it.
 codecov
 coverage
-flake8
 pytest
+pytest-cov
+tox
+flake8
 sphinx
 jupyter
 # These are dependencies of various sphinx extensions for documentation.
@@ -13,5 +15,4 @@ recommonmark
 numpydoc
 sphinx-copybutton
 sphinx_rtd_theme
-tensorflow
 

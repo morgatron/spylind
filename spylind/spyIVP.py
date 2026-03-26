@@ -41,8 +41,13 @@ import pdb
 from munch import Munch, munchify
 from box import Box
 from .import utils as ut
-from .backends import ModelNumpy, D_Dt_Fast_numpy 
-#from .backends import ModelTensorflow, D_Dt_Fast_TF
+from .backends import ModelNumpy, D_Dt_Fast_numpy
+
+try:
+    from .backends import ModelTensorflow, D_Dt_Fast_TF
+except (ImportError, ModuleNotFoundError):
+    ModelTensorflow = None
+    D_Dt_Fast_TF = None
 #import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
@@ -66,6 +71,13 @@ class ODESys:
     """
     """
     _output_func = None
+
+    @property
+    def _backend_registry(self):
+        return {
+            "numpy": self._setup_numpy_model,
+            "tensorflow": self._setup_tensorflow_model,
+        }
     def __init__(self, dy_dtD, intermediate_calcs = {}, output_exprD = None, trans_dims={}, tSym=sm.symbols('t'), 
             driving_syms=[],state_dep_syms = [], constant_syms = [], bTryToSimplify=False,
                  bDecompose_to_re_im=False, sim_dtype=None):
@@ -76,18 +88,9 @@ class ODESys:
             dy_dtD = {sym: ex.simplify() for sym, ex in dy_dtD.items()}
         N_dims = len(trans_dims)
 
-        #dims = Munch(
-        #    vals = list(dimsD.values()),
-        #    symbols = list(dimsD.keys()),
-        #    #shape = tuple([dim.size for dim in dimsD.values()]) if N_dims else 1,
-        #    shape = tuple([dim.size for dim in dimsD.values()]),
-        #    broadcastable = {sym:arr.reshape(*(k * [1] + [arr.size] + (N_dims - k - 1) * [1]))
-        #                         for k, (sym, arr) in enumerate(dimsD.items()) }
-        #    )
         dims = Box(
             axes = trans_dims,
             symbols = list(trans_dims.keys()),
-            #shape = tuple([dim.size for dim in dimsD.values()]) if N_dims else 1,
             shape = tuple([dim.size for dim in trans_dims.values()]),
             axes_broadcastable = {sym:arr.reshape(*(k * [1] + [arr.size] + (N_dims - k - 1) * [1]))
                                  for k, (sym, arr) in enumerate(trans_dims.items()) }
@@ -124,63 +127,51 @@ class ODESys:
         self.constantsD = {sym:None for sym in constant_syms} # TO CHECK
         self.output_exprD = output_exprD
 
-        #print(self.symsD)
-        #print(f"Signature for state_dep_funcs: {state_func_signature}")
-
-        # REAL/IMAG decomposition
-        # If we need to decompose, take the following steps:
-        # * save original symbol breakdown
-        # * save the substitutions and symbol mappings needed to get this
-        # * save the original state_function_signature.
-        # * Split complex symbollic expressions into two:
-        #   * make a new dy_dtD with real and imaginary symbols seperated -#
-        #   * make a new, expanded list of constant expressions
-        #   * intermediate expressions... may be able to be kept as is, if they're just going into user code (which will be complex anyway)... but will need it's inputs to be real (outputs can be complex)
-        #
-        # * make a new state_dep_func signature with the real/imaginary components of arguments seperated
-        # * state_dependent functions and driving functions are handled later in the relevant set_ methods
         if bDecompose_to_re_im:
-            dy_dtD_new, complex_subsD, symbol_mapD = ut.expand_to_re_im(dy_dtD)
-            if bTryToSimplify:
-                dy_dtD_new = {sym: ex.simplify() for sym, ex in dy_dtD_new.items()}
-
-            real_imag_conv = Box(
-                symsD_orig = symsD,
-                dy_dtD_orig = dy_dtD,
-                state_func_signature_orig = state_func_signature,
-                complex_subsD = complex_subsD,
-                symbol_mapD = symbol_mapD,
-                )
-
-            propagated_state_syms, stationary_state_syms, free_syms = self.sort_symbols(
-            dy_dtD_new)
-            symsD.state = propagated_state_syms + stationary_state_syms
-            #symsD.constants = 
-            symsD = Box({'t': tSym,
-                               'dimensions': dims.symbols,
-                               'state': propagated_state_syms + stationary_state_syms,
-                               'stationary_state': [],  # Not used yet
-                               'driving': driving_syms,
-                               'unspecified': ut.list_diff(free_syms, driving_syms), # TO CHECK
-                               })
-
-            #def ensure_list(el): return el if np.iterable(el) else [el]
-            #state_func_signature_new = [ensure_list(symbol_mapD[sym])
-                              #if sym in symbol_mapD else sym for sym in state_func_signature]
-            #[[symbol_mapD[sym] if sym in symbol_mapD else sym for sym in ensure_list ]
-
-            self.symsD =symsD
-            self.state_func_signature = chain(*state_func_signature)
-            self.dy_dtD = dy_dtD_new
-            self.real_imag_conv = real_imag_conv
-            print("realified state dependent functions signature: {}".format(
-                state_func_signature))
+            self._decompose_to_re_im(bTryToSimplify)
+        
         self.bDecompose_to_re_im = bDecompose_to_re_im
-
-
-        self.state_dep_subs_D = {};
-        self.state_dep_funcs_D = {};
+        self.state_dep_subs_D = {}
+        self.state_dep_funcs_D = {}
         self.driving_funcs_D = {}
+
+    def _decompose_to_re_im(self, bTryToSimplify=False):
+        """Split complex symbolic expressions into real and imaginary parts."""
+        dy_dtD_new, complex_subsD, symbol_mapD = ut.expand_to_re_im(self.dy_dtD)
+        if bTryToSimplify:
+            dy_dtD_new = {sym: ex.simplify() for sym, ex in dy_dtD_new.items()}
+
+        real_imag_conv = Box(
+            symsD_orig=self.symsD,
+            dy_dtD_orig=self.dy_dtD,
+            state_func_signature_orig=self.state_func_signature,
+            complex_subsD=complex_subsD,
+            symbol_mapD=symbol_mapD,
+        )
+
+        propagated_state_syms, stationary_state_syms, free_syms = self.sort_symbols(
+            dy_dtD_new
+        )
+        
+        # Create new symsD for the real-only system
+        new_symsD = Box({
+            't': self.symsD.t,
+            'dimensions': self.dims.symbols,
+            'state': propagated_state_syms + stationary_state_syms,
+            'stationary_state': [],
+            'intermediate': self.symsD.intermediate,
+            'driving': self.symsD.driving,
+            'state_dep': self.symsD.state_dep,
+            'constants': self.symsD.constants,
+            'unspecified': ut.list_diff(free_syms, self.symsD.driving),
+        })
+
+        self.symsD = new_symsD
+        self.state_func_signature = chain(*real_imag_conv.state_func_signature_orig)
+        self.dy_dtD = dy_dtD_new
+        self.real_imag_conv = real_imag_conv
+        print("realified state dependent functions signature: {}".format(
+            real_imag_conv.state_func_signature_orig))
 
     def summary(self):
         from IPython.display import display, Latex, Markdown
@@ -287,17 +278,6 @@ class ODESys:
             return arr
 
         par0 = np.array([expand_shape(arr) for arr in par0], dtype=self.sim_dtype)
-
-        if 0:
-            # by now par0 should an iterable of paramters in the required order. Now we'll broadcast it to
-            # the other dimensions.
-            # Assume a uniform initial state
-            if par0.ndim == 1 and len(self.dimAxes) > 0:
-                par0 = par0.reshape(-1, *len(self.dimAxes) * [1])
-                newShape = (len(self.symsD['prop_state_syms']),
-                            *[np.size(ax) for ax in self.dimAxes])
-                par0 = np.broadcast_to(par0, newShape)
-
         self.par0 = par0
 
     def set_driving(self, driving_funcs_D={}, bAlreadyRealified=False):
@@ -330,28 +310,22 @@ class ODESys:
             driving_funcs_D = driving_funcs_D_ri
 
         self.driving_funcs_D = driving_funcs_D
-        self.input_modifiers = ...
         #print(driving_funcs_D)
 
     def set_constants(self, constantsD):
-        """Set multi-dimensional values that won't change during the simulation
+        """Set multi-dimensional values that won't change during the simulation.
 
-        They should represent the symbols that were given in the constructor
-
-        If the values are symbollic expressions, they will be evaluated first. Otherwise they are assumed to be numpy arrays.
-        
-
-        ... except we should probably actually not do this here...
+        If the values are symbolic expressions, they will be evaluated first.
+        Otherwise they are assumed to be numpy arrays.
         """
         constantsD_numerical = {}
-        for key in constantsD: # loop through the entries and evaluate if they're expressions (depending on dimensions only at this point)
-            in_syms = self.symsD.dimensions #+ symsD.unspecified
-            if isinstance(constantsD[key], sm.Expr):
-                
-                evaluated  = sm.lambdify(in_syms, val, modules="numpy")(*self.dimensions.values())
-                constantsD_numerical[key]=  evaluated
+        for key, val in constantsD.items():
+            in_syms = self.symsD.dimensions
+            if isinstance(val, sm.Expr):
+                evaluated = sm.lambdify(in_syms, val, modules="numpy")(*self.dims.axes.values())
+                constantsD_numerical[key] = evaluated
             else:
-                constantsD_numerical[key]= constantsD[key]
+                constantsD_numerical[key] = val
             # Now it's a numerical value. It might be complex however
         if self.bDecompose_to_re_im:
             constantsD_numerical, subsD, symbol_mapD = ut.expand_to_re_im(constantsD, bNumericalRHS = True)
@@ -414,82 +388,107 @@ class ODESys:
         self.state_dep_funcs_D = state_dep_funcs_D
 
     def set_outputs(self, f=None):
-        """ This is the function called at every output step. If not given, it'll just output the system state variables.
-        """
+        """Sets the output function for the model.
 
-        self.outputL=[]
-        if f is None: # if we
-            def f(t, sim_state, *args):
-                res = sim_state
-                return res
-        #could check if it's a list of expressions and lambdify those?
+        If no function is provided, the default behavior is to return the system state.
+        If the system was decomposed to real/imaginary parts, the default output function
+        will reassemble them back into complex numbers.
+        """
+        self.outputL = []
+        if f is None:
+            if self.bDecompose_to_re_im:
+                # Reassemble complex state from real/imag components
+                orig_state_syms = self.real_imag_conv.symsD_orig.state
+                new_state_syms = self.symsD.state
+                symbol_mapD = self.real_imag_conv.symbol_mapD
+                
+                reassembly_map = []
+                for sym in orig_state_syms:
+                    if sym.is_real:
+                        reassembly_map.append(new_state_syms.index(sym))
+                    else:
+                        sym_r, sym_i = symbol_mapD[sym]
+                        reassembly_map.append((new_state_syms.index(sym_r), new_state_syms.index(sym_i)))
+
+                def f(t, sim_state, *args):
+                    reassembled = []
+                    for item in reassembly_map:
+                        if isinstance(item, tuple):
+                            idx_r, idx_i = item
+                            reassembled.append(sim_state[idx_r] + 1j * sim_state[idx_i])
+                        else:
+                            reassembled.append(sim_state[item])
+                    return np.array(reassembled)
+            else:
+                def f(t, sim_state, *args):
+                    return sim_state
 
         self._output_func = f
 
-    def setup_model(self, substitutionsD = {}, bLastMinuteSimplify=False, backend = 'numpy', bForceStateDimensions=False, **model_kwargs):
-        """ Do some of the expensive steps required before things can be integrated. Return a model.
+    def setup_model(self, substitutionsD={}, bLastMinuteSimplify=False, backend='numpy', bForceStateDimensions=False, **model_kwargs):
+        """Prepares the system for integration and returns a model object.
 
-        Steps:
-            1. Decide which variables are necessary to integrate,
-            based on which ones change and which ones are desired as output
-            2. Optionally look at initial conditions to see if anything changes based on this.
-            3. Compile a dy_dt_fast() function to do the actual integration as fast as possible
-            4. Create a function to recreate the desired outputs based on the output of dy_dt_fast
-
-        TODO: this would ideally jsut return an object, all compiled, which can be used for integrating. 
-        The interface of the object should be just integrate_to(tEnd), integrate(tSteps), continue(tNext), reset_initial()
+        This involves:
+        1. Performing substitutions and optional simplification.
+        2. Preparing intermediate calculations.
+        3. Dispatching to the appropriate backend setup method.
         """
-
         # DO SUBSTITUTIONS
-        dy_dtD = self.dy_dtD
         dy_dtD = {sym: ex.subs(self.state_dep_subs_D).subs(substitutionsD)
                   for sym, ex in self.dy_dtD.items()}
+        
         if bLastMinuteSimplify:
             dy_dtD = {sym: ex.simplify() for sym, ex in dy_dtD.items()}
 
         intermediate_calcs_subbed = [expr.subs(substitutionsD) for expr in self.intermediate_calcs]
-        ##
-        if self.bDecompose_to_re_im:
-            # Do something to dy_dtD: this should all have been done already in __init__
-            pass
 
         if self._output_func is None:
             self.set_outputs()
-        initial_state = self.par0
-        # NOTE: If we're removing stationary variables, this may have some keys/values removed.
-        # Currently we're not, so we'll ignore this.
 
-        if backend=="numpy":
-            d_dt_fast = D_Dt_Fast_numpy(self.symsD.t, self.symsD.dimensions, self.dims.axes.values(), dy_dtD, self.driving_funcs_D, intermediate_calcs_subbed, self.state_dep_funcs_D, constantsD =self.constantsD, bForceStateDimensions=bForceStateDimensions, dtype = self.sim_dtype)
-            if self.output_exprD:
-                output_func = d_dt_fast.getLambdified(self.output_exprD)
-            else:
-                output_func = self._output_func
-            model= ModelNumpy(d_dt_fast, initial_state, output_func, **model_kwargs)
+        if backend not in self._backend_registry:
+            raise ValueError(f"Unsupported backend: {backend}. Available: {list(self._backend_registry.keys())}")
 
-        elif backend == 'tensorflow':
-            #D_Dt_Fast = D_Dt_Fast_TF
-            #model = ModelTensorflow(...)
-            # TODO: Need to make output expressions somehow
-            d_dt_fast = D_Dt_Fast_TF(self.symsD.t, self.symsD.dimensions, self.dims.axes.values(), dy_dtD, self.driving_funcs_D, intermediate_calcs_subbed, self.state_dep_funcs_D, constantsD =self.constantsD, bForceStateDimensions=bForceStateDimensions, dtype = self.sim_dtype)
-            model= ModelTensorflow(d_dt_fast, initial_state, self._output_func, **model_kwargs)
-        else:
-            raise ValueError(f"Don't understand the backend: {self.backend}")
+        setup_func = self._backend_registry[backend]
+        return setup_func(dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, **model_kwargs)
 
-        def revert(vals):
-            """ Add back in the initial conditions for stationary variables, if they exist.
+    def _setup_numpy_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, **model_kwargs):
+        """Setup for the Scipy/Numpy backend."""
+        d_dt_fast = D_Dt_Fast_numpy(
+            self.symsD.t, 
+            self.symsD.dimensions, 
+            self.dims.axes.values(), 
+            dy_dtD, 
+            self.driving_funcs_D, 
+            intermediate_calcs_subbed, 
+            self.state_dep_funcs_D, 
+            constantsD=self.constantsD, 
+            bForceStateDimensions=bForceStateDimensions, 
+            dtype=self.sim_dtype
+        )
+        
+        output_func = d_dt_fast.getLambdified(self.output_exprD) if self.output_exprD else self._output_func
+        return ModelNumpy(d_dt_fast, self.par0, output_func, **model_kwargs)
 
-            Currently don't actually treat stationary variables, so this is not useful
-            """
-            raise NotImplementedError()
-        return model
+    def _setup_tensorflow_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, **model_kwargs):
+        """Setup for the Tensorflow backend."""
+        if ModelTensorflow is None:
+            raise ImportError("Tensorflow backend dependencies are not installed.")
 
+        d_dt_fast = D_Dt_Fast_TF(
+            self.symsD.t, 
+            self.symsD.dimensions, 
+            self.dims.axes.values(), 
+            dy_dtD, 
+            self.driving_funcs_D, 
+            intermediate_calcs_subbed, 
+            self.state_dep_funcs_D, 
+            constantsD=self.constantsD, 
+            bForceStateDimensions=bForceStateDimensions, 
+            dtype=self.sim_dtype
+        )
+        # TODO: Implement output expression lambdification for TF if needed
+        return ModelTensorflow(d_dt_fast, self.par0, self._output_func, **model_kwargs)
 
-
-
-
-
-
-if __name__ == "__main__":
-    def test_ODESys():
-        pass
+    def revert(self, vals):
+        """Add back initial conditions for stationary variables (not yet implemented)."""
+        raise NotImplementedError()

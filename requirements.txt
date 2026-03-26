@@ -7,3 +7,4 @@ munch
 qutip
 python-box
 matplotlib
+pandas

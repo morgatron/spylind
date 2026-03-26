@@ -57,6 +57,9 @@ setup(
         ]
     },
     install_requires=requirements,
+    extras_require={
+        'tf': ['tensorflow', 'tensorflow-probability'],
+    },
     license="BSD (3-clause)",
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',

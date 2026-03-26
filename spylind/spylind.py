@@ -29,35 +29,48 @@ def toDense(qobj):
 def SpreSmSp(op):
     op = toDense(op)
     opN=op.shape[0]
-    opSM = sm.SparseMatrix(op)
+    # Ensure it is a sympy matrix of Exprs, not a matrix of matrices
+    opSM = sm.Matrix(op)
     #This is essentially just a sparse block-matrix
-    SpreS=sm.SparseMatrix(opN**2, opN**2, {(opN*k,opN*k):opSM for k in range(opN) })
+    SpreS = sm.SparseMatrix(opN**2, opN**2, {})
+    for k in range(opN):
+        SpreS[k*opN:(k+1)*opN, k*opN:(k+1)*opN] = opSM
     return SpreS
 
 def SpostSmSp(op):
-    op = toDense(op)
+    op = toDense(op).T # Transpose for post-multiplication in vectorization
     N=op.shape[0]
+    opSM = sm.Matrix(op)
 
-    dct = {(N*l,N*k ):
-           sm.SparseMatrix(N,N, {(i,i):op[k,l] for i in range(N)} ) for k,l in product(range(N), repeat=2)
-        }
-    SpostS = sm.SparseMatrix(N**2,N**2, dct)
+    SpostS = sm.SparseMatrix(N**2, N**2, {})
+    for k in range(N):
+        for l in range(N):
+            val = opSM[k, l]
+            if val != 0:
+                # This should be (op.T \otimes I)
+                # which means if op.T[k,l] is val, 
+                # then the block at (k,l) is val*I
+                for i in range(N):
+                    SpostS[k*N + i, l*N + i] = val
     return SpostS
 
 def liouvillianS(op, cOpL=[]):
     if op is not None:
-        L = 1j*(SpreSmSp(op) - SpostSmSp((op)))
-
+        op = toDense(op)
+        L = -1j*(SpreSmSp(op) - SpostSmSp(op))
     else:
-        N=cOpL[0].shape[0]
-        #L = np.matrix(np.zeros((N**2,N**2), dtype='object'))
+        # Determine N from cOpL
+        if not cOpL:
+            raise ValueError("Both op and cOpL are empty")
+        N = toDense(cOpL[0]).shape[0]
         L = sm.SparseMatrix(N**2, N**2, {})
+    
     for cOp in cOpL:
-        #cOp = np.matrix(cOp)
-        cdc = cOp.H*cOp
-        #cdc = herm_c(cOp)*cOp
-        L += SpreSmSp(cOp)*SpostSmSp(cOp.H) -\
-            (SpreSmSp(cdc) +SpostSmSp(cdc))/2
+        cOp = sm.Matrix(toDense(cOp))
+        cOp_dag = sm.conjugate(cOp).T
+        cdc = cOp_dag * cOp
+        L += SpreSmSp(cOp)*SpostSmSp(cOp_dag) -\
+            (SpreSmSp(cdc) + SpostSmSp(cdc))/2
     return L
 
 def seperate_DM_equation(eq):
@@ -282,11 +295,15 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
 
     If rhoS is given, it's a assumed to be a symbollic density matrix, and the outputs will be in terms of these elements. If it's not given, one will be made.
     """
+    if c_opL is None:
+        c_opL = []
+    if e_opL is None:
+        e_opL = []
     #print('makeMESymb enter', flush=True)
     #pdb.set_trace()
     # Make the liouvillian-----------------------------------
     H0 = H_L.pop(0)
-    H0 = sm.SparseMatrix(H0)
+    H0 = toDense(H0)
     Nstates = H0.shape[0]
 
     if rhoS is None:
@@ -300,7 +317,8 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
         else:
             print("no coefficient for a hamiltonian element. Will assume it's 1")
             sym = 1.
-            op = sm.SparseMatrix(toDense(el))
+            op = el
+        op = sm.Matrix(toDense(op))
         L += sym * liouvillianS(op)
 
     for el in c_opL[:]:
@@ -309,7 +327,7 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
         else:
             coef = 1.
             op = el
-        op = sm.SparseMatrix(toDense(op))
+        op = sm.Matrix(toDense(op))
         L += coef * liouvillianS(None, cOpL=[op])
 
     # Get drho_dt
@@ -319,6 +337,7 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
 
     e_op_outL = []
     for op in e_opL:
+        op = sm.Matrix(toDense(op))
         ex = sm.Trace(rhoS * op).doit()  # np.sum(array(H1[off_diag_ind])*array(rhoS)[off_diag_ind]).subs(Esym,1)
         ex = ex.simplify()
         e_op_outL.append(ex)
@@ -337,9 +356,9 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
 def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coupling_fL={}, max_step_size=0.1, rtol=1e-6, atol=1e-10):
     """ Mimic the interface of qutip's mesolve
     """
-    lhsL, rhsL, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL = e_ops)
+    evoD, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL = e_ops)
 
-    ode_s = ivp.ODESolver(dict(zip(lhsL, rhsL) ),  dims=dims, driving_syms= list(t_dep_fL.keys()))
+    ode_s = ivp.ODESys(evoD,  trans_dims=dims, driving_syms= list(t_dep_fL.keys()))
     ode_s.set_driving(t_dep_fL)
     #ode_s.set_state_dep()
 
@@ -349,15 +368,14 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
     if q.isoper(rho0):
         rho0= toDense(rho0)
     rho0 = Dia(rho0) + Coh(rho0)
-    ode_s.set_initial_conditions(rho0 )
-    e_op_f_L = [sm.lambdify(ode_s.symsD['prop_state_syms'],e_op ) for e_op in e_op_outL]
-    def calc_expectation_vals(state):
+    ode_s.set_initial_state(rho0 )
+    e_op_f_L = [sm.lambdify(ode_s.symsD['state'],e_op ) for e_op in e_op_outL]
+    def calc_expectation_vals(t, state):
         return [f(*state) for f in e_op_f_L]
-    ode_s.set_online_processing(calc_expectation_vals) 
-    ode_s.setup()
-    out=ode_s.integrate(tlist, max_step_size=max_step_size, 
-                                atol=atol, rtol=rtol)
-    state_res = np.array(ode_s.outputL).squeeze()
+    ode_s.set_outputs(calc_expectation_vals) 
+    model = ode_s.setup_model(max_step=max_step_size, atol=atol, rtol=rtol)
+    state_res = model.integrate(tlist)
+    #state_res = np.array(ode_s.outputL).squeeze()
     # Should do something about expectation values here. Probably evaluate them
     #if e_op_outL:
         #f = sm.lambdify(ode_s.state_syms, e_op_outL)
