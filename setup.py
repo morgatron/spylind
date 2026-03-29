@@ -1,6 +1,7 @@
 from os import path
 from setuptools import setup, find_packages
 import sys
+import versioneer
 
 
 # NOTE: This file must remain Python 2 compatible for the foreseeable future,
@@ -34,10 +35,11 @@ with open(path.join(here, 'requirements.txt')) as requirements_file:
 
 setup(
     name='spylind',
-    version=0.2,#versioneer.get_version(),
-    #cmdclass=versioneer.get_cmdclass(),
+    version=versioneer.get_version(),
+    cmdclass=versioneer.get_cmdclass(),
     description="Simple definition and fast solution of quantum systems described by a Lindblad master equation.",
     long_description=readme,
+    long_description_content_type='text/x-rst',
     author="Morgan Hedges",
     author_email='morgan.hedges@gmail.com',
     url='https://github.com/morgatron/spylind',
@@ -59,6 +61,8 @@ setup(
     install_requires=requirements,
     extras_require={
         'tf': ['tensorflow', 'tensorflow-probability'],
+        'jax': ['jax', 'jaxlib', 'diffrax', 'equinox'],
+        'full': ['tensorflow', 'tensorflow-probability', 'jax', 'jaxlib', 'diffrax', 'equinox'],
     },
     license="BSD (3-clause)",
     classifiers=[

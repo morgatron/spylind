@@ -4,9 +4,18 @@ from scipy import integrate
 import pdb
 
 try:
-    from backend_tf import ModelTensorflow, D_Dt_Fast_TF
-except ModuleNotFoundError as e:
-    print("Tensorflow not accessible: {}".format(str(e)))
+    import jax
+    import jax.numpy as jnp
+    import diffrax
+except (ImportError, ModuleNotFoundError):
+    jax = None
+    diffrax = None
+
+try:
+    from .backend_tf import ModelTensorflow, D_Dt_Fast_TF
+except (ModuleNotFoundError, ImportError) as e:
+    ModelTensorflow = None
+    D_Dt_Fast_TF = None
 
 
 # These objects are supposed to represent the packaged up object to actually do the solution. It takes parameters, and returns output,, with minimum cruft. They're supposed to be made by the ODESys object.
@@ -57,32 +66,31 @@ class ModelNumpy(Model):  # Should really be called ModelScipy
         state_at_t0,
         output_func,
         state_shape=None,
-        name=None,
-        method="adams",
-        atol=1e-10,
-        rtol=1e-8,
-        max_step=0.1,
-        input_modifiers={},
+        solver_opts=None,
         **kwargs,
     ):
         """this is usually called by setup in ODESys"""
-
+        opts = solver_opts or {}
+        
+        name = opts.pop('name', None)
         if name is None:
             name = "vode"
             if np.iscomplexobj(state_at_t0):
                 name = "zvode"
+        
+        method = opts.pop('method', 'adams')
+        atol = opts.pop('atol', 1e-10)
+        rtol = opts.pop('rtol', 1e-8)
+        max_step = opts.pop('max_step', 0.1)
+
         self.d_dtF_orig = d_dt
-
         self._calc_output_user = output_func
-
         self.initial_state = state_at_t0
+        
         int_obj = integrate.ode(self.d_dtF_wrapped)
-        # if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
         int_obj.set_integrator(
-            name, max_step=max_step, method=method, **kwargs
-        )  # ,order=5) # or adams
-        # int_obj.set_integrator("lsoda", max_step=max_step,#, method = method,
-        # **kwargs)  # ,order=5) # or adams
+            name, max_step=max_step, method=method, atol=atol, rtol=rtol, **opts
+        )
         self.scipy_integrator = int_obj
 
         if state_shape is None:
@@ -276,3 +284,200 @@ class D_Dt_Fast_numpy:
         for i, val in enumerate(res):
             self.d_dt_current[i] = val
         return self.d_dt_current
+
+
+class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
+    """JAX/Diffrax compatible ODE RHS."""
+
+    lambdify_modules = ["jax", {"adjoint": jnp.conj, "conjugate": jnp.conj}]
+
+    def __init__(self, *args, **kwargs):
+        if jax is None:
+            raise ImportError("JAX/Diffrax not installed.")
+        super().__init__(*args, **kwargs)
+        # Convert constants to jax arrays
+        self.constant_vals = [jnp.array(v) for v in self.constant_vals]
+        self.dimAxes = [jnp.array(ax) for ax in self.dimAxes]
+        self.dim_shape = tuple([len(ax) for ax in self.dimAxes])
+
+        # Optimize for JAX by avoiding unpacking large state vectors into individual tracers.
+        # We group the symbols in the lambdify signature.
+        # This requires re-lambdifying with a grouped signature.
+        
+        # We need to extract the original symbols to regroup them
+        # Note: these were stored in self during super().__init__
+        self.grouped_input_syms = [
+            self.t_sym,
+            tuple(self.input_syms[1:1+len(self.dimAxes)]), # dim_syms
+            tuple(self.state_syms),
+            tuple([s for s in self.input_syms if str(s).startswith('driving_') or s in self.t_dep_f]), # approximation of driving
+        ]
+        # Actually, let's just use the known structure from the constructor
+        # Re-derive grouped syms safely
+        t_sym = self.t_sym
+        dim_syms = self.input_syms[1:1+len(self.dimAxes)]
+        n_dim = len(dim_syms)
+        n_state = len(self.state_syms)
+        state_syms = self.input_syms[1+n_dim : 1+n_dim+n_state]
+        
+        # The remaining are driving, state_dep, and constants
+        # We'll just group them for now to reduce argument count
+        other_syms = self.input_syms[1+n_dim+n_state:]
+        
+        self.grouped_input_syms = [t_sym, tuple(dim_syms), tuple(state_syms), tuple(other_syms)]
+        
+        self.d_dtF_grouped = sm.lambdify(
+            self.grouped_input_syms, list(self.evoD.values()), modules=self.lambdify_modules
+        )
+
+    def _tree_flatten(self):
+        children = (
+            tuple(self.constant_vals),
+            tuple(self.dimAxes),
+        )
+        # aux_data must be hashable and contain only static information.
+        # Functions and symbolic objects should be handled carefully.
+        aux_data = {
+            't_sym': self.t_sym,
+            'state_syms': self.state_syms,
+            'd_dtF': self.d_dtF,
+            'd_dtF_grouped': self.d_dtF_grouped,
+            'intermediate_calc_F': self.intermediate_calc_F,
+            'state_dep_f': tuple(self.state_dep_f),
+            't_dep_f': tuple(self.t_dep_f),
+            'dim_shape': self.dim_shape,
+            'input_syms': tuple(self.input_syms),
+            'grouped_input_syms': tuple(self.grouped_input_syms),
+            'evoD': self.evoD,
+            'state_dep_funcs_D': getattr(self, 'state_dep_funcs_D', {}),
+        }
+        return (children, aux_data)
+
+    @classmethod
+    def _tree_unflatten(cls, aux_data, children):
+        obj = cls.__new__(cls)
+        for k, v in aux_data.items():
+            setattr(obj, k, v)
+        obj.constant_vals = list(children[0])
+        obj.dimAxes = list(children[1])
+        return obj
+
+    def __call__(self, t, state, args=None):
+        # Diffrax signature is (t, y, args)
+        
+        # These are still Python loops, but they operate on JAX tracers
+        driving_vals = [f(t) for f in self.t_dep_f]
+        
+        # We use a grouped call to intermediate_calc_F if possible, 
+        # but for now let's just optimize the main d_dtF call
+        intermediate_vals = self.intermediate_calc_F(
+            t, *self.dimAxes, *state, *driving_vals, *self.constant_vals
+        )
+        state_dep_vals = [
+            f(
+                t,
+                self.dimAxes,
+                state,
+                driving_vals,
+                intermediate_vals,
+                self.constant_vals,
+            )
+            for f in self.state_dep_f
+        ]
+
+        # Use the grouped function to avoid tracer unpacking explosion
+        others = tuple(driving_vals) + tuple(state_dep_vals) + tuple(self.constant_vals)
+        res = self.d_dtF_grouped(
+            t,
+            tuple(self.dimAxes),
+            tuple(state), # Still unpacking into a tuple, but JAX handles tuples of tracers well
+            others
+        )
+        
+        res = [jnp.broadcast_to(r, self.dim_shape) for r in res]
+        return jnp.stack(res)
+
+if jax is not None:
+    jax.tree_util.register_pytree_node(
+        D_Dt_Fast_Diffrax,
+        D_Dt_Fast_Diffrax._tree_flatten,
+        D_Dt_Fast_Diffrax._tree_unflatten
+    )
+
+
+class ModelDiffrax:
+    def __init__(
+        self,
+        d_dt_fast,
+        initial_state,
+        output_func,
+        solver_opts=None,
+        **kwargs,
+    ):
+        self.d_dt_fast = d_dt_fast
+        self.initial_state = jnp.array(initial_state)
+        self.output_func = output_func
+
+        opts = solver_opts or {}
+        self.solver = opts.pop('solver', diffrax.Dopri5())
+        self.max_steps = opts.pop('max_steps', 16384)
+        atol = opts.pop('atol', 1e-9)
+        rtol = opts.pop('rtol', 1e-7)
+        max_step = opts.pop('max_step', None)
+
+        self.stepsize_controller = opts.pop('stepsize_controller', None)
+        if self.stepsize_controller is None:
+            self.stepsize_controller = diffrax.PIDController(
+                rtol=rtol, atol=atol, dtmax=max_step
+            )
+        self.kwargs = opts # Remaining opts go to diffeqsolve
+
+
+    def integrate(self, tSteps, initial_state=None):
+        if initial_state is None:
+            initial_state = self.initial_state
+        else:
+            initial_state = jnp.array(initial_state)
+
+        t0 = tSteps[0]
+        t1 = tSteps[-1]
+        dt0 = (tSteps[1] - tSteps[0]) if len(tSteps) > 1 else 0.1
+
+        saveat = diffrax.SaveAt(ts=tSteps)
+
+        # Diffrax expects a function (t, y, args)
+        term = diffrax.ODETerm(self.d_dt_fast)
+
+        # Use a JITted internal function to speed up repeated calls
+        @jax.jit
+        def solve(y0, t0, t1, dt0, tSteps):
+            sol = diffrax.diffeqsolve(
+                term,
+                self.solver,
+                t0=t0,
+                t1=t1,
+                dt0=dt0,
+                y0=y0,
+                stepsize_controller=self.stepsize_controller,
+                saveat=diffrax.SaveAt(ts=tSteps),
+                max_steps=self.max_steps,
+                **self.kwargs,
+            )
+            return sol
+
+        sol = solve(initial_state, t0, t1, dt0, tSteps)
+
+        # Process outputs efficiently using vmap if possible
+        # We need a function that works on JAX tracers
+        try:
+            # Try vectorizing the output function
+            # self.output_func(t, y)
+            output_vmap = jax.vmap(self.output_func)
+            res = output_vmap(tSteps, sol.ys)
+            return np.array(res)
+        except Exception as e:
+            # Fallback to Python loop if output_func is not JAX-compatible
+            outputL = []
+            for i in range(len(tSteps)):
+                outputL.append(self.output_func(tSteps[i], sol.ys[i]))
+            return np.array(outputL)

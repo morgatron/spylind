@@ -18,7 +18,7 @@ from numpy import pi, newaxis, exp
 from matplotlib import pyplot as plt
 from collections import namedtuple
 import sys
-from munch import Munch as Bunch #<- just for holding the results
+from box import Box as Bunch #<- just for holding the results
 import pdb
 from scipy.linalg import toeplitz
 from scipy import interpolate

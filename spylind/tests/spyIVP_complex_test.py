@@ -66,6 +66,42 @@ def test_complex_oscillator_tensorflow():
     expected = np.exp(1j * omega * t_steps)
     assert np.allclose(res[:, 0], expected, atol=1e-3)
 
+@pytest.mark.skipif(so.ModelDiffrax is None, reason="Diffrax not installed")
+def test_complex_oscillator_diffrax():
+    """Test the same oscillator with diffrax backend."""
+    y = sm.symbols("y")
+    omega = 1.0
+    
+    dy_dtD = {y: 1j * omega * y}
+    
+    ode_sys = so.ODESys(dy_dtD)
+    ode_sys.set_initial_state({y: 1.0 + 0j})
+    
+    model = ode_sys.setup_model(backend='diffrax')
+    t_steps = np.linspace(0, 2 * np.pi, 100)
+    res = model.integrate(t_steps)
+    
+    expected = np.exp(1j * omega * t_steps)
+    assert np.allclose(res[:, 0], expected, atol=1e-5)
+
+@pytest.mark.skipif(so.ModelDiffrax is None, reason="Diffrax not installed")
+def test_complex_oscillator_decomposed_diffrax():
+    """Test the same oscillator with diffrax backend and real/imag decomposition."""
+    y = sm.symbols("y")
+    omega = 1.0
+    
+    dy_dtD = {y: 1j * omega * y}
+    
+    ode_sys = so.ODESys(dy_dtD, bDecompose_to_re_im=True)
+    ode_sys.set_initial_state({y: 1.0 + 0j})
+    
+    model = ode_sys.setup_model(backend='diffrax')
+    t_steps = np.linspace(0, 2 * np.pi, 100)
+    res = model.integrate(t_steps)
+    
+    expected = np.exp(1j * omega * t_steps)
+    assert np.allclose(res[:, 0], expected, atol=1e-5)
+
 def test_complex_oscillator_multidim():
     """Test a complex oscillator with spatial dimensions."""
     y = sm.symbols("y")

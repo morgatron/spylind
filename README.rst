@@ -17,7 +17,7 @@ Most 'docs', if htey exist. will be in the example notebooks.
 
 
 spylind and spyIVP
------------------
+------------------
 
 The main thing this spylind does is give expressions for the evolution of density matrix elements, i.e. d_rho/d_t, based on some Hamiltonian specification. The result is a dictionary of sympy symbols with corresponding sympy expressions representing their derivatives.
 

@@ -38,7 +38,14 @@ import sympy as sm
 import numpy as np
 from numpy import linspace, arange
 import pdb
-from munch import Munch, munchify
+
+try:
+    import jax
+    import jax.numpy as jnp
+except (ImportError, ModuleNotFoundError):
+    jax = None
+    jnp = None
+
 from box import Box
 from .import utils as ut
 from .backends import ModelNumpy, D_Dt_Fast_numpy
@@ -48,6 +55,12 @@ try:
 except (ImportError, ModuleNotFoundError):
     ModelTensorflow = None
     D_Dt_Fast_TF = None
+
+try:
+    from .backends import ModelDiffrax, D_Dt_Fast_Diffrax
+except (ImportError, ModuleNotFoundError):
+    ModelDiffrax = None
+    D_Dt_Fast_Diffrax = None
 #import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
@@ -77,6 +90,7 @@ class ODESys:
         return {
             "numpy": self._setup_numpy_model,
             "tensorflow": self._setup_tensorflow_model,
+            "diffrax": self._setup_diffrax_model,
         }
     def __init__(self, dy_dtD, intermediate_calcs = {}, output_exprD = None, trans_dims={}, tSym=sm.symbols('t'), 
             driving_syms=[],state_dep_syms = [], constant_syms = [], bTryToSimplify=False,
@@ -425,7 +439,7 @@ class ODESys:
 
         self._output_func = f
 
-    def setup_model(self, substitutionsD={}, bLastMinuteSimplify=False, backend='numpy', bForceStateDimensions=False, **model_kwargs):
+    def setup_model(self, substitutionsD={}, bLastMinuteSimplify=False, backend='numpy', bForceStateDimensions=False, solver_opts=None):
         """Prepares the system for integration and returns a model object.
 
         This involves:
@@ -449,9 +463,9 @@ class ODESys:
             raise ValueError(f"Unsupported backend: {backend}. Available: {list(self._backend_registry.keys())}")
 
         setup_func = self._backend_registry[backend]
-        return setup_func(dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, **model_kwargs)
+        return setup_func(dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=solver_opts)
 
-    def _setup_numpy_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, **model_kwargs):
+    def _setup_numpy_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=None):
         """Setup for the Scipy/Numpy backend."""
         d_dt_fast = D_Dt_Fast_numpy(
             self.symsD.t, 
@@ -467,9 +481,9 @@ class ODESys:
         )
         
         output_func = d_dt_fast.getLambdified(self.output_exprD) if self.output_exprD else self._output_func
-        return ModelNumpy(d_dt_fast, self.par0, output_func, **model_kwargs)
+        return ModelNumpy(d_dt_fast, self.par0, output_func, solver_opts=solver_opts)
 
-    def _setup_tensorflow_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, **model_kwargs):
+    def _setup_tensorflow_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=None):
         """Setup for the Tensorflow backend."""
         if ModelTensorflow is None:
             raise ImportError("Tensorflow backend dependencies are not installed.")
@@ -487,7 +501,38 @@ class ODESys:
             dtype=self.sim_dtype
         )
         # TODO: Implement output expression lambdification for TF if needed
-        return ModelTensorflow(d_dt_fast, self.par0, self._output_func, **model_kwargs)
+        return ModelTensorflow(d_dt_fast, self.par0, self._output_func, solver_opts=solver_opts)
+
+    def _setup_diffrax_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=None):
+        """Setup for the Diffrax/JAX backend."""
+        if ModelDiffrax is None:
+            raise ImportError("Diffrax/JAX backend dependencies are not installed.")
+
+        # Check for 64-bit precision support in JAX
+        if self.sim_dtype in (np.float64, np.complex128):
+            if not jax.config.read("jax_enable_x64"):
+                import warnings
+                warnings.warn(
+                    f"Requested 64-bit precision ({self.sim_dtype}), but JAX x64 support is disabled. "
+                    "Diffrax will downcast to 32-bit. To enable, run: "
+                    "'jax.config.update(\"jax_enable_x64\", True)' at the start of your script."
+                )
+
+        d_dt_fast = D_Dt_Fast_Diffrax(
+            self.symsD.t, 
+            self.symsD.dimensions, 
+            self.dims.axes.values(), 
+            dy_dtD, 
+            self.driving_funcs_D, 
+            intermediate_calcs_subbed, 
+            self.state_dep_funcs_D, 
+            constantsD=self.constantsD, 
+            bForceStateDimensions=bForceStateDimensions, 
+            dtype=self.sim_dtype
+        )
+        
+        output_func = d_dt_fast.getLambdified(self.output_exprD) if self.output_exprD else self._output_func
+        return ModelDiffrax(d_dt_fast, self.par0, output_func, solver_opts=solver_opts)
 
     def revert(self, vals):
         """Add back initial conditions for stationary variables (not yet implemented)."""

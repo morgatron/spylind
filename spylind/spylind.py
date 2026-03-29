@@ -373,7 +373,8 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
     def calc_expectation_vals(t, state):
         return [f(*state) for f in e_op_f_L]
     ode_s.set_outputs(calc_expectation_vals) 
-    model = ode_s.setup_model(max_step=max_step_size, atol=atol, rtol=rtol)
+    solver_opts = {'max_step': max_step_size, 'atol': atol, 'rtol': rtol}
+    model = ode_s.setup_model(solver_opts=solver_opts)
     state_res = model.integrate(tlist)
     #state_res = np.array(ode_s.outputL).squeeze()
     # Should do something about expectation values here. Probably evaluate them

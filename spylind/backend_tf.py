@@ -10,19 +10,20 @@ tf.keras.backend.set_floatx(TF_DTYPE) # Presumably can get more speed, especiall
 class ModelTensorflow(Model):# Should really be called ModelScipy
 
     outputL = []
-    def __init__(self, d_dt, state_at_t0, output_func, state_shape=None, name =None, method='adams',atol = 1e-12, rtol=1e-6, max_step=0.1, input_modifiers={}, **kwargs):
+    def __init__(self, d_dt, state_at_t0, output_func, state_shape=None, solver_opts=None, **kwargs):
         """this is usually called by setup in ODESys"""
+        opts = solver_opts or {}
+        
+        self.name = opts.pop('name', None)
+        self.method = opts.pop('method', 'adams')
+        self.atol = opts.pop('atol', 1e-12)
+        self.rtol = opts.pop('rtol', 1e-6)
+        self.max_step = opts.pop('max_step', 0.1)
 
         self.d_dtF_orig = d_dt
         self.initial_state = state_at_t0
         self._calc_output_user =  output_func
-
-        if 0:
-            int_obj = integrate.ode(self.d_dtF_wrapped)
-            #if self.bDecompose_to_re_im or self.default_dtype not in (np.complex64, np.complex128):
-            int_obj.set_integrator(name, max_step=max_step, method = method,
-                                 **kwargs)  # ,order=5) # or adams
-            self.scipy_integrator = int_obj
+        self.kwargs = opts # Remaining opts
 
         if state_shape is None:
             state_shape = state_at_t0.shape
@@ -101,30 +102,6 @@ class D_Dt_Fast_TF:
 
         self.state_shape = state_shape
         self.dim_shape = dim_shape
-
-        if 0:
-            rhs = list(evoD.values())
-
-            dim_shape = tuple([len(ax) for ax in dimAxes])
-            state_shape = tuple([len(eqD), *dim_shape])
-
-            input_syms = [tSym] + dimSyms + \
-                state_syms + t_dep_syms + state_dep_syms
-            self.eq = Munch(lhs=input_syms, rhs=rhs)
-
-            self.d_dt_lam = d_dt_lam
-            self.preShaped_dimAxes = [dAx.reshape(*(k * [1] + [dAx.size] + (len(dimAxes) - k - 1) * [1]))
-                                    for k, dAx in enumerate(dimAxes)]
-            self.preShaped_dimAxes = [tf.convert_to_tensor(ax, dtype = self.TF_DTYPE) for ax in self.preShaped_dimAxes]
-            self.dtype = dtype
-            self.state_dep_f = list(state_dep_FD.values())
-            #self.t_dep_f = list(t_dep_FD.values())
-            self.t_dep_FD = t_dep_FD
-            #self.state_shape = tf.convert_to_tensor(state_shape, dtype=tf.int32)
-            self.state_shape = state_shape
-            self.dim_shape = dim_shape
-            #self.sim_size = np.product(state_shape)
-            #super().__init__()
 
     #@tf.function
     def _d_dt(self, t, state, driving_vals, state_dep_vals, constant_vals):

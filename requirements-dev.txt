@@ -4,6 +4,8 @@ codecov
 coverage
 pytest
 pytest-cov
+pytest-xdist
+versioneer>=0.29
 tox
 flake8
 sphinx
