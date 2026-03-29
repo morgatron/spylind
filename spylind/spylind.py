@@ -54,15 +54,26 @@ def SpostSmSp(op):
                     SpostS[k*N + i, l*N + i] = val
     return SpostS
 
-def liouvillianS(op, cOpL=[]):
-    if op is not None:
-        op = toDense(op)
+def liouvillianS(op, cOpL=[], N=None):
+    def is_zero(m):
+        if m is None: return True
+        if isinstance(m, (int, float, complex)) and m == 0: return True
+        if isinstance(m, (np.ndarray, np.matrix, sm.Matrix, sm.SparseMatrix)):
+            if isinstance(m, (sm.Matrix, sm.SparseMatrix)):
+                return m.is_zero_matrix
+            return np.all(m == 0)
+        return False
+
+    if not is_zero(op):
+        op = sm.SparseMatrix(toDense(op))
         L = -1j*(SpreSmSp(op) - SpostSmSp(op))
+        N = op.shape[0]
     else:
-        # Determine N from cOpL
-        if not cOpL:
-            raise ValueError("Both op and cOpL are empty")
-        N = toDense(cOpL[0]).shape[0]
+        if N is None:
+            if cOpL:
+                N = toDense(cOpL[0]).shape[0]
+            else:
+                raise ValueError("N must be provided if op and cOpL are zero/empty")
         L = sm.SparseMatrix(N**2, N**2, {})
     
     for cOp in cOpL:
@@ -302,33 +313,44 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
     #print('makeMESymb enter', flush=True)
     #pdb.set_trace()
     # Make the liouvillian-----------------------------------
-    H0 = H_L.pop(0)
-    H0 = toDense(H0)
-    Nstates = H0.shape[0]
+    if isinstance(H_L[0], list):
+        # Case where H is [ [coeff, H1], [coeff, H2] ... ]
+        # We need to determine Nstates from the first operator
+        op = H_L[0][1]
+        Nstates = op.shape[0] if hasattr(op, 'shape') else sm.Matrix(op).shape[0]
+        H0 = sm.zeros(Nstates)
+        h_terms = H_L
+    else:
+        # Case where H is [ H0, [coeff, H1] ... ]
+        H0 = H_L[0]
+        H0 = toDense(H0)
+        Nstates = H0.shape[0]
+        h_terms = H_L[1:]
 
     if rhoS is None:
         rhoS = getRhoS(Nstates)
 
     # Construct Hamiltonian part
-    L = liouvillianS(H0)
-    for el in H_L:
-        if np.iterable(el) and not type(el) == q.Qobj and not type(el) == np.matrix and not type(el) == np.array:
+    L = liouvillianS(H0, N=Nstates)
+    
+    for el in h_terms:
+        if np.iterable(el) and not isinstance(el, (q.Qobj, np.ndarray)):
             sym, op = el
         else:
             print("no coefficient for a hamiltonian element. Will assume it's 1")
             sym = 1.
             op = el
         op = sm.Matrix(toDense(op))
-        L += sym * liouvillianS(op)
+        L += sym * liouvillianS(op, N=Nstates)
 
     for el in c_opL[:]:
-        if np.iterable(el) and not type(el) == q.Qobj and not type(el) == np.matrix and not type(el) == np.array:
+        if np.iterable(el) and not isinstance(el, (q.Qobj, np.ndarray)):
             coef, op = el
         else:
             coef = 1.
             op = el
         op = sm.Matrix(toDense(op))
-        L += coef * liouvillianS(None, cOpL=[op])
+        L += coef * liouvillianS(None, cOpL=[op], N=Nstates)
 
     # Get drho_dt
     drho_dtS = (L * rhoS.reshape(Nstates**2, 1)).reshape(
@@ -353,7 +375,8 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
 
 
 #mesolve(H, rho0, tlist, c_ops=None, e_ops=None
-def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coupling_fL={}, max_step_size=0.1, rtol=1e-6, atol=1e-10):
+def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coupling_fL={}, 
+            max_step_size=0.1, rtol=1e-6, atol=1e-10, backend='numpy', solver_opts=None):
     """ Mimic the interface of qutip's mesolve
     """
     evoD, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL = e_ops)
@@ -373,9 +396,13 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
     def calc_expectation_vals(t, state):
         return [f(*state) for f in e_op_f_L]
     ode_s.set_outputs(calc_expectation_vals) 
-    solver_opts = {'max_step': max_step_size, 'atol': atol, 'rtol': rtol}
-    model = ode_s.setup_model(solver_opts=solver_opts)
+    
+    if solver_opts is None:
+        solver_opts = {'max_step': max_step_size, 'atol': atol, 'rtol': rtol}
+    
+    model = ode_s.setup_model(solver_opts=solver_opts, backend=backend)
     state_res = model.integrate(tlist)
+    return np.array(state_res).squeeze()
     #state_res = np.array(ode_s.outputL).squeeze()
     # Should do something about expectation values here. Probably evaluate them
     #if e_op_outL:

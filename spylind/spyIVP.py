@@ -511,12 +511,18 @@ class ODESys:
         # Check for 64-bit precision support in JAX
         if self.sim_dtype in (np.float64, np.complex128):
             if not jax.config.read("jax_enable_x64"):
-                import warnings
-                warnings.warn(
-                    f"Requested 64-bit precision ({self.sim_dtype}), but JAX x64 support is disabled. "
-                    "Diffrax will downcast to 32-bit. To enable, run: "
-                    "'jax.config.update(\"jax_enable_x64\", True)' at the start of your script."
-                )
+                # Attempt to enable it automatically
+                jax.config.update("jax_enable_x64", True)
+                
+                # Check if it actually worked (might be too late)
+                if not jax.config.read("jax_enable_x64"):
+                    import warnings
+                    warnings.warn(
+                        f"Requested 64-bit precision ({self.sim_dtype}), but JAX x64 support is disabled "
+                        "and could not be enabled automatically (likely JAX has already been initialized). "
+                        "Diffrax will downcast to 32-bit and use loosened tolerances. To fix, run: "
+                        "'jax.config.update(\"jax_enable_x64\", True)' at the very start of your script."
+                    )
 
         d_dt_fast = D_Dt_Fast_Diffrax(
             self.symsD.t, 

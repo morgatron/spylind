@@ -420,9 +420,19 @@ class ModelDiffrax:
 
         opts = solver_opts or {}
         self.solver = opts.pop('solver', diffrax.Dopri5())
-        self.max_steps = opts.pop('max_steps', 16384)
-        atol = opts.pop('atol', 1e-9)
-        rtol = opts.pop('rtol', 1e-7)
+        self.max_steps = opts.pop('max_steps', 1000000)
+        
+        # Check current JAX precision to set sane default tolerances
+        is_x64 = jax.config.read("jax_enable_x64")
+        default_atol = 1e-9 if is_x64 else 1e-5
+        default_rtol = 1e-7 if is_x64 else 1e-4
+        
+        atol = opts.pop('atol', default_atol)
+        rtol = opts.pop('rtol', default_rtol)
+        
+        if not is_x64 and (atol < 1e-6 or rtol < 1e-5):
+            print(f"WARNING: JAX x64 is disabled. Loosening default tolerances to atol={atol}, rtol={rtol} to avoid solver failure.")
+
         max_step = opts.pop('max_step', None)
 
         self.stepsize_controller = opts.pop('stepsize_controller', None)
