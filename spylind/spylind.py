@@ -397,10 +397,12 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
         return [f(*state) for f in e_op_f_L]
     ode_s.set_outputs(calc_expectation_vals) 
     
-    if solver_opts is None:
-        solver_opts = {'max_step': max_step_size, 'atol': atol, 'rtol': rtol}
+    # Standardize options: merge defaults with user-provided solver_opts
+    actual_opts = {'max_step': max_step_size, 'atol': atol, 'rtol': rtol}
+    if solver_opts:
+        actual_opts.update(solver_opts)
     
-    model = ode_s.setup_model(solver_opts=solver_opts, backend=backend)
+    model = ode_s.setup_model(solver_opts=actual_opts, backend=backend)
     state_res = model.integrate(tlist)
     return np.array(state_res).squeeze()
     #state_res = np.array(ode_s.outputL).squeeze()

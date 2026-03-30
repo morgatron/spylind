@@ -143,3 +143,38 @@ def test_harmonic_oscillator_diffrax():
         assert np.allclose(res[:, 0, 0], expected_x, atol=1e-4)
     else:
         assert np.allclose(res[:, 0], expected_x, atol=1e-4)
+
+@pytest.mark.skipif(so.ModelDiffrax is None, reason="Diffrax not installed")
+def test_diffrax_max_steps():
+    """Verify that max_steps correctly limits the integration in Diffrax."""
+    x, v = sm.symbols("x, v", real=True)
+    dy_dtD = {x: v, v: -x}
+    ode_sys = so.ODESys(dy_dtD)
+    ode_sys.set_initial_state({x: 1.0, v: 0.0})
+    
+    # Set a ridiculously low max_steps
+    model = ode_sys.setup_model(backend='diffrax', solver_opts={'max_steps': 2})
+    t_steps = np.linspace(0, 10, 100)
+    
+    with pytest.raises(Exception) as excinfo:
+        model.integrate(t_steps)
+    
+    # Diffrax/JAX usually raises a RuntimeError when max steps is reached
+    assert "maximum number of steps" in str(excinfo.value).lower() or "max_steps" in str(excinfo.value).lower()
+
+@pytest.mark.skipif(so.ModelDiffrax is None, reason="Diffrax not installed")
+def test_diffrax_nsteps_alias():
+    """Verify that the 'nsteps' alias for 'max_steps' works in Diffrax."""
+    x, v = sm.symbols("x, v", real=True)
+    dy_dtD = {x: v, v: -x}
+    ode_sys = so.ODESys(dy_dtD)
+    ode_sys.set_initial_state({x: 1.0, v: 0.0})
+    
+    # Set nsteps (SciPy style alias)
+    model = ode_sys.setup_model(backend='diffrax', solver_opts={'nsteps': 2})
+    t_steps = np.linspace(0, 10, 100)
+    
+    with pytest.raises(Exception) as excinfo:
+        model.integrate(t_steps)
+    
+    assert "maximum number of steps" in str(excinfo.value).lower() or "max_steps" in str(excinfo.value).lower()

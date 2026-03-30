@@ -12,7 +12,7 @@ class ModelTensorflow(Model):# Should really be called ModelScipy
     outputL = []
     def __init__(self, d_dt, state_at_t0, output_func, state_shape=None, solver_opts=None, **kwargs):
         """this is usually called by setup in ODESys"""
-        opts = solver_opts or {}
+        opts = dict(solver_opts) if solver_opts else {}
         
         self.name = opts.pop('name', None)
         self.method = opts.pop('method', 'adams')

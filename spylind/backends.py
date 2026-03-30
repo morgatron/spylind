@@ -70,27 +70,31 @@ class ModelNumpy(Model):  # Should really be called ModelScipy
         **kwargs,
     ):
         """this is usually called by setup in ODESys"""
-        opts = solver_opts or {}
-        
+        opts = dict(solver_opts) if solver_opts else {}
+
         name = opts.pop('name', None)
         if name is None:
             name = "vode"
             if np.iscomplexobj(state_at_t0):
                 name = "zvode"
-        
+
         method = opts.pop('method', 'adams')
         atol = opts.pop('atol', 1e-10)
         rtol = opts.pop('rtol', 1e-8)
         max_step = opts.pop('max_step', 0.1)
 
+        # Support both nsteps (scipy) and max_steps (diffrax) as aliases
+        nsteps = opts.pop('nsteps', opts.pop('max_steps', 500))
+
         self.d_dtF_orig = d_dt
         self._calc_output_user = output_func
         self.initial_state = state_at_t0
-        
+
         int_obj = integrate.ode(self.d_dtF_wrapped)
         int_obj.set_integrator(
-            name, max_step=max_step, method=method, atol=atol, rtol=rtol, **opts
+            name, max_step=max_step, method=method, atol=atol, rtol=rtol, nsteps=nsteps, **opts
         )
+
         self.scipy_integrator = int_obj
 
         if state_shape is None:
@@ -303,7 +307,7 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
         # Optimize for JAX by avoiding unpacking large state vectors into individual tracers.
         # We group the symbols in the lambdify signature.
         # This requires re-lambdifying with a grouped signature.
-        
+
         # We need to extract the original symbols to regroup them
         # Note: these were stored in self during super().__init__
         self.grouped_input_syms = [
@@ -319,13 +323,13 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
         n_dim = len(dim_syms)
         n_state = len(self.state_syms)
         state_syms = self.input_syms[1+n_dim : 1+n_dim+n_state]
-        
+
         # The remaining are driving, state_dep, and constants
         # We'll just group them for now to reduce argument count
         other_syms = self.input_syms[1+n_dim+n_state:]
-        
+
         self.grouped_input_syms = [t_sym, tuple(dim_syms), tuple(state_syms), tuple(other_syms)]
-        
+
         self.d_dtF_grouped = sm.lambdify(
             self.grouped_input_syms, list(self.evoD.values()), modules=self.lambdify_modules
         )
@@ -364,11 +368,11 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
 
     def __call__(self, t, state, args=None):
         # Diffrax signature is (t, y, args)
-        
+
         # These are still Python loops, but they operate on JAX tracers
         driving_vals = [f(t) for f in self.t_dep_f]
-        
-        # We use a grouped call to intermediate_calc_F if possible, 
+
+        # We use a grouped call to intermediate_calc_F if possible,
         # but for now let's just optimize the main d_dtF call
         intermediate_vals = self.intermediate_calc_F(
             t, *self.dimAxes, *state, *driving_vals, *self.constant_vals
@@ -393,7 +397,7 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
             tuple(state), # Still unpacking into a tuple, but JAX handles tuples of tracers well
             others
         )
-        
+
         res = [jnp.broadcast_to(r, self.dim_shape) for r in res]
         return jnp.stack(res)
 
@@ -418,20 +422,23 @@ class ModelDiffrax:
         self.initial_state = jnp.array(initial_state)
         self.output_func = output_func
 
-        opts = solver_opts or {}
+        opts = dict(solver_opts) if solver_opts else {}
         self.solver = opts.pop('solver', diffrax.Dopri5())
-        self.max_steps = opts.pop('max_steps', 1000000)
-        
+
+        # Support both max_steps (diffrax) and nsteps (scipy) as aliases
+        self.max_steps = opts.pop('max_steps', opts.pop('nsteps', 100000000))
+        # print(f"Max_steps is {self.max_steps}")
+
         # Check current JAX precision to set sane default tolerances
         is_x64 = jax.config.read("jax_enable_x64")
         default_atol = 1e-9 if is_x64 else 1e-5
         default_rtol = 1e-7 if is_x64 else 1e-4
-        
+
         atol = opts.pop('atol', default_atol)
         rtol = opts.pop('rtol', default_rtol)
-        
+
         if not is_x64 and (atol < 1e-6 or rtol < 1e-5):
-            print(f"WARNING: JAX x64 is disabled. Loosening default tolerances to atol={atol}, rtol={rtol} to avoid solver failure.")
+            print(f"WARNING: JAX x64 is disabled. Using requested tolerances (atol={atol}, rtol={rtol}), but be aware that 32-bit precision might cause solver issues with tight tolerances.")
 
         max_step = opts.pop('max_step', None)
 
