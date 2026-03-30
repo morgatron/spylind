@@ -2,47 +2,54 @@
 Spylind
 =======
 
-.. image:: https://img.shields.io/travis/morgatron/spylind.svg
-        :target: https://travis-ci.org/morgatron/spylind
+Spylind is a Python library for the symbolic definition and high-performance solution of large ensembles of quantum systems described by the Lindblad master equation.
 
-.. image:: https://img.shields.io/pypi/v/spylind.svg
-        :target: https://pypi.python.org/pypi/spylind
+It is particularly optimized for ensembles with many degrees of freedom (e.g., inhomogeneous broadening), utilizing **JAX** and **TensorFlow** for JIT compilation and GPU acceleration.
 
+Core Components
+---------------
 
-Simple definition and relatively fast solution of large ensembles of quantum systems, each described by a Lindblad master equation. This was mainly written for the classs of problems relevant to Rare-earth ion ensembles in solids, where each density matrix represents a class of tationary ions, and the driving fields (optical, RF) are large enough to be considered classical.
+* **spylind**: Generates symbolic equations of motion (EOM) for density matrix elements from a Hamiltonian and collapse operators.
+* **spyIVP**: A high-performance bridge between symbolic expressions and numerical ODE solvers.
 
-There is a strong overlap with qutip's 'mesolve', and the use of qutips `Qobj` objects to define operators is supported. Qutip tends to work badly when attempting to describe large ensmebls. For small systems however, spylind will be somewhat slower.
+Key Features
+------------
 
-Most 'docs', if htey exist. will be in the example notebooks.
+* **Symbolic-to-Numerical**: Automates the transition from SymPy expressions to optimized solver code.
+* **Multiple Backends**:
+    * **Diffrax (JAX)**: High-performance, JIT-compiled, and GPU-capable.
+    * **NumPy (SciPy)**: Robust, industry-standard CPU integration.
+    * **TensorFlow**: scalable integration for large-scale problems.
+* **Multi-dimensional Ensembles**: Native support for parameter sweeps and spatial dimensions.
+* **QuTiP Integration**: Supports QuTiP ``Qobj`` for operator definitions.
 
+Installation
+------------
 
-spylind and spyIVP
-------------------
+.. code-block:: bash
 
-The main thing this spylind does is give expressions for the evolution of density matrix elements, i.e. d_rho/d_t, based on some Hamiltonian specification. The result is a dictionary of sympy symbols with corresponding sympy expressions representing their derivatives.
+    pip install spylind[jax]  # Recommended for performance
+    pip install spylind[tf]   # For TensorFlow support
+    pip install spylind[full] # All backends
 
-To actually solve these usefully, we need to stick them into some kind of ODE solver. Practically this, means taking the equations of motion defined symbollically, turning them into a python function that takes inputs and returns derivatives, and finally integrating them using something like scipy's odeint. While straightforward enough, this can be clunky and error prone.
+Quick Example
+-------------
 
-For that reason, spyIVP was written. It's mostly just a bridge between a method to create the python function (using sympy's 'lambdify') and sicpy's 'odeint' for the sctual solving. It takes care of making sure the arrays are the right shape etc, should make adding extra prolbem dimensions fairly easy.
+.. code-block:: python
 
-spyIVP _should_ be really simple. It's become a bit bloated though, because it's trying to be a bit backend agnostic. In particular, to support using Tensorflow for increased speed and scalability.
+    from spylind import spylind as spl
+    import qutip as q
+    import numpy as np
+    import sympy as sm
 
+    # Define a 2-level system symbolically
+    H = [0.1 * np.pi * q.sigmaz(), [sm.symbols('Omega')/2, q.sigmax()]]
+    tlist = np.linspace(0, 1.0, 101)
 
-pyMBE
------
-spylind etc are written to be the base of a more flexible version of pyMBE. That's still a goal (see MBE.py), but not done yet.
+    # Solve using the Diffrax backend
+    res = spl.mesolve(H, q.basis(2,0), tlist,
+                      t_dep_fL={'Omega': lambda t: 2*np.pi},
+                      e_ops=[q.sigmaz()],
+                      backend='diffrax')
 
-
-Future
---------
-WHen This was started, there didn't seem to be a good solution for the actual solving, which is why spyIVP was written. Since then, the Julia language's differential equations package (DifferentialEquqations.jl) has grown and looks fantastic. On brief appearances, it may well solve several of the issues for which spyIVP was made (easy solutions of multi-dimensional equations, automatic differentiation, works on the GPU)
-
-
-* Free software: 3-clause BSD license
-* Documentation: (Should end up at...) https://morgatron.github.io/spylind.
-
-Features
---------
-* Incomplete!
-* TODO
-* Major todo: solidify interface with Tensorflow and finding of gradients.
+* License: 3-clause BSD
