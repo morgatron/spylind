@@ -29,9 +29,8 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     extras_require={
-        'tf': ['tensorflow', 'tensorflow-probability'],
         'jax': ['jax', 'jaxlib', 'diffrax', 'equinox'],
-        'full': ['tensorflow', 'tensorflow-probability', 'jax', 'jaxlib', 'diffrax', 'equinox'],
+        'cyrk': ['CyRK'],
     },
     license="BSD (3-clause)",
     classifiers=[

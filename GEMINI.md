@@ -16,7 +16,8 @@ The project also includes spyIVP which is a way to quickly solve initial value p
     - `ODESys`: The main class for representing and solving a system of ODEs (Note: historical references to `ODESolver` likely refer to this class).
 - **`spylind.backends`**: Implementation of solver backends.
     - `ModelNumpy`: Uses `scipy.integrate.ode`.
-    - `ModelTensorflow`: (WIP) Integration with Tensorflow for speed and scalability.
+    - `ModelDiffrax`: Uses `diffrax` (JAX) for high-performance, XLA-accelerated solving.
+    - `ModelCyRK`: Uses `CyRK` for fast, Cython-based integration.
 - **`spylind.MBE`**: Maxwell-Bloch Equations implementation.
 
 ## Key Technologies

@@ -46,26 +46,6 @@ def test_complex_oscillator_decomposed_numpy():
     # Even if decomposed internally, the output should be complex y
     assert np.allclose(res[:, 0], expected, atol=1e-5)
 
-@pytest.mark.skipif(so.ModelTensorflow is None, reason="Tensorflow not installed")
-def test_complex_oscillator_tensorflow():
-    """Test the same oscillator with tensorflow backend."""
-    y = sm.symbols("y")
-    omega = 1.0
-    
-    dy_dtD = {y: 1j * omega * y}
-    
-    # Tensorflow backend usually requires decomposition for complex ODEs 
-    # if it uses real-only solvers internally.
-    ode_sys = so.ODESys(dy_dtD, bDecompose_to_re_im=True)
-    ode_sys.set_initial_state({y: 1.0 + 0j})
-    
-    model = ode_sys.setup_model(backend='tensorflow')
-    t_steps = np.linspace(0, 2 * np.pi, 100).astype(np.float32)
-    res = model.integrate(t_steps)
-    
-    expected = np.exp(1j * omega * t_steps)
-    assert np.allclose(res[:, 0], expected, atol=1e-3)
-
 @pytest.mark.skipif(so.ModelDiffrax is None, reason="Diffrax not installed")
 def test_complex_oscillator_diffrax():
     """Test the same oscillator with diffrax backend."""

@@ -51,16 +51,16 @@ from .import utils as ut
 from .backends import ModelNumpy, D_Dt_Fast_numpy
 
 try:
-    from .backends import ModelTensorflow, D_Dt_Fast_TF
-except (ImportError, ModuleNotFoundError):
-    ModelTensorflow = None
-    D_Dt_Fast_TF = None
-
-try:
     from .backends import ModelDiffrax, D_Dt_Fast_Diffrax
 except (ImportError, ModuleNotFoundError):
     ModelDiffrax = None
     D_Dt_Fast_Diffrax = None
+
+try:
+    from .backends import ModelCyRK, D_Dt_Fast_CyRK
+except (ImportError, ModuleNotFoundError):
+    ModelCyRK = None
+    D_Dt_Fast_CyRK = None
 #import tfdiffeq
 from itertools import chain
 from collections.abc import Mapping
@@ -89,11 +89,11 @@ class ODESys:
     def _backend_registry(self):
         return {
             "numpy": self._setup_numpy_model,
-            "tensorflow": self._setup_tensorflow_model,
             "diffrax": self._setup_diffrax_model,
+            "cyrk": self._setup_cyrk_model,
         }
     def __init__(self, dy_dtD, intermediate_calcs = {}, output_exprD = None, trans_dims={}, tSym=sm.symbols('t'), 
-            driving_syms=[],state_dep_syms = [], constant_syms = [], bTryToSimplify=False,
+            driving_syms=[],state_dep_syms = [], constant_syms = [], parameters=[], bTryToSimplify=False,
                  bDecompose_to_re_im=False, sim_dtype=None):
         # Take care of any python data types on the RHS, convert them to sympy equivalents
         dy_dtD = {sym: sm.sympify(ex) for sym, ex in dy_dtD.items()}
@@ -121,7 +121,8 @@ class ODESys:
                                'driving': driving_syms,
                                'state_dep': state_dep_syms,
                                'constants': constant_syms,
-                               'unspecified': set(free_syms).difference( list(driving_syms)+list(state_dep_syms)+dims.symbols + constant_syms), 
+                               'parameters': parameters,
+                               'unspecified': set(free_syms).difference( list(driving_syms)+list(state_dep_syms)+dims.symbols + constant_syms + parameters), 
                                })
         state_func_signature = (symsD.t, symsD.dimensions, symsD.state, \
             symsD.stationary_state, symsD.driving)
@@ -139,6 +140,7 @@ class ODESys:
         self.state_shape = tuple([len(dy_dtD), *dims.shape])
         self.state_func_signature = state_func_signature
         self.constantsD = {sym:None for sym in constant_syms} # TO CHECK
+        self.parametersD = {sym: 0.0 for sym in parameters} # Default parameter values
         self.output_exprD = output_exprD
 
         if bDecompose_to_re_im:
@@ -148,6 +150,18 @@ class ODESys:
         self.state_dep_subs_D = {}
         self.state_dep_funcs_D = {}
         self.driving_funcs_D = {}
+
+    def set_parameters(self, paramsD):
+        """Set default values for tunable parameters."""
+        for sym, val in paramsD.items():
+            if sym in self.parametersD:
+                self.parametersD[sym] = val
+            else:
+                # If symbol given as string
+                for psym in self.parametersD:
+                    if str(psym) == str(sym):
+                        self.parametersD[psym] = val
+                        break
 
     def _decompose_to_re_im(self, bTryToSimplify=False):
         """Split complex symbolic expressions into real and imaginary parts."""
@@ -177,6 +191,7 @@ class ODESys:
             'driving': self.symsD.driving,
             'state_dep': self.symsD.state_dep,
             'constants': self.symsD.constants,
+            'parameters': self.symsD.parameters,
             'unspecified': ut.list_diff(free_syms, self.symsD.driving),
         })
 
@@ -476,32 +491,14 @@ class ODESys:
             intermediate_calcs_subbed, 
             self.state_dep_funcs_D, 
             constantsD=self.constantsD, 
+            parameter_syms=self.symsD.parameters,
+            parameter_vals=list(self.parametersD.values()),
             bForceStateDimensions=bForceStateDimensions, 
             dtype=self.sim_dtype
         )
         
         output_func = d_dt_fast.getLambdified(self.output_exprD) if self.output_exprD else self._output_func
         return ModelNumpy(d_dt_fast, self.par0, output_func, solver_opts=solver_opts)
-
-    def _setup_tensorflow_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=None):
-        """Setup for the Tensorflow backend."""
-        if ModelTensorflow is None:
-            raise ImportError("Tensorflow backend dependencies are not installed.")
-
-        d_dt_fast = D_Dt_Fast_TF(
-            self.symsD.t, 
-            self.symsD.dimensions, 
-            self.dims.axes.values(), 
-            dy_dtD, 
-            self.driving_funcs_D, 
-            intermediate_calcs_subbed, 
-            self.state_dep_funcs_D, 
-            constantsD=self.constantsD, 
-            bForceStateDimensions=bForceStateDimensions, 
-            dtype=self.sim_dtype
-        )
-        # TODO: Implement output expression lambdification for TF if needed
-        return ModelTensorflow(d_dt_fast, self.par0, self._output_func, solver_opts=solver_opts)
 
     def _setup_diffrax_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=None):
         """Setup for the Diffrax/JAX backend."""
@@ -533,12 +530,35 @@ class ODESys:
             intermediate_calcs_subbed, 
             self.state_dep_funcs_D, 
             constantsD=self.constantsD, 
+            parameter_syms=self.symsD.parameters,
+            parameter_vals=list(self.parametersD.values()),
             bForceStateDimensions=bForceStateDimensions, 
             dtype=self.sim_dtype
         )
         
         output_func = d_dt_fast.getLambdified(self.output_exprD) if self.output_exprD else self._output_func
         return ModelDiffrax(d_dt_fast, self.par0, output_func, solver_opts=solver_opts)
+
+    def _setup_cyrk_model(self, dy_dtD, intermediate_calcs_subbed, bForceStateDimensions, solver_opts=None):
+        """Setup for the CyRK backend."""
+        if ModelCyRK is None:
+            raise ImportError("CyRK dependencies are not installed.")
+
+        d_dt_fast = D_Dt_Fast_CyRK(
+            self.symsD.t, 
+            self.symsD.dimensions, 
+            self.dims.axes.values(), 
+            dy_dtD, 
+            self.driving_funcs_D, 
+            intermediate_calcs_subbed, 
+            self.state_dep_funcs_D, 
+            constantsD=self.constantsD, 
+            bForceStateDimensions=bForceStateDimensions, 
+            dtype=self.sim_dtype
+        )
+        
+        output_func = d_dt_fast.getLambdified(self.output_exprD) if self.output_exprD else self._output_func
+        return ModelCyRK(d_dt_fast, self.par0, output_func, solver_opts=solver_opts)
 
     def revert(self, vals):
         """Add back initial conditions for stationary variables (not yet implemented)."""

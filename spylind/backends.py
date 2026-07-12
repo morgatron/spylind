@@ -12,10 +12,9 @@ except (ImportError, ModuleNotFoundError):
     diffrax = None
 
 try:
-    from .backend_tf import ModelTensorflow, D_Dt_Fast_TF
-except (ModuleNotFoundError, ImportError) as e:
-    ModelTensorflow = None
-    D_Dt_Fast_TF = None
+    import CyRK
+except (ImportError, ModuleNotFoundError):
+    CyRK = None
 
 
 # These objects are supposed to represent the packaged up object to actually do the solution. It takes parameters, and returns output,, with minimum cruft. They're supposed to be made by the ODESys object.
@@ -118,9 +117,13 @@ class ModelNumpy(Model):  # Should really be called ModelScipy
         # driving_vals, intermediate_vals, state_dep_vals = self.d_dtF_orig._calc_all_requirements(t,state)
         # return self._calc_output_user(t, *self.d_dtF_orig.dimAxes, *state, *driving_vals, *state_dep_vals, *self.d_dtF_orig.constant_vals)
 
-    def integrate(self, tSteps, initial_state=None, paramD={}, **kwargs):
+    def integrate(self, tSteps, initial_state=None, params={}, **kwargs):
         if initial_state is None:
             initial_state = self.initial_state
+        
+        if params:
+            self.d_dtF_orig.set_parameters(params)
+
         I = self.scipy_integrator
         I.set_initial_value(self._flatten(initial_state), tSteps[0])
         # Should look at tSteps and reset if we're asking to restart
@@ -166,6 +169,8 @@ class D_Dt_Fast_numpy:
         state_dep_FD={},
         output_exprD={},
         constantsD={},
+        parameter_syms=[],
+        parameter_vals=[],
         bForceStateDimensions=False,
         dtype=np.complex128,
     ):
@@ -184,12 +189,13 @@ class D_Dt_Fast_numpy:
             + t_dep_syms
             + state_dep_syms
             + constant_syms
+            + parameter_syms
         )
         d_dtF = sm.lambdify(
             input_syms, list(evoD.values()), modules=self.lambdify_modules
         )
 
-        intermediate_syms = [t_sym] + dim_syms + state_syms + t_dep_syms + constant_syms
+        intermediate_syms = [t_sym] + dim_syms + state_syms + t_dep_syms + constant_syms + parameter_syms
         self.intermediate_calc_F = sm.lambdify(
             intermediate_syms, intermediate_exprs, modules=self.lambdify_modules
         )
@@ -212,6 +218,8 @@ class D_Dt_Fast_numpy:
         )  # should probably be tuples... maybe even named ones
         self.t_dep_f = list(t_dep_FD.values())
         self.constant_vals = list(constantsD.values())
+        self.parameter_vals = list(parameter_vals)
+        self.parameter_syms = parameter_syms
         self.t_sym = t_sym
         self.state_syms = state_syms
         self.input_syms = input_syms
@@ -219,18 +227,29 @@ class D_Dt_Fast_numpy:
         # For later inspection
         self.evoD = evoD
 
+    def set_parameters(self, paramsD):
+        """Update runtime parameter values."""
+        # Map input dict to the correct order in parameter_vals
+        for sym, val in paramsD.items():
+            found = False
+            for i, psym in enumerate(self.parameter_syms):
+                if psym == sym or str(psym) == str(sym):
+                    self.parameter_vals[i] = val
+                    found = True
+                    break
+            if not found:
+                print(f"Warning: parameter {sym} not found in model.")
+
     def getLambdified(self, exprD):
         l_func = sm.lambdify(
             self.input_syms, list(exprD.values()), modules=self.lambdify_modules
         )
-        l_func = sm.lambdify(
-            [self.t_sym] + self.state_syms,
-            list(exprD.values()),
-            modules=self.lambdify_modules,
-        )
-
+        
         def wrapped_lambda(t, state, *args):
-            return l_func(t, *state)
+            driving_vals, intermediate_vals, state_dep_vals = self._calc_all_requirements(t, state)
+            input_args = ([t] + self.dimAxes + list(state) + driving_vals + 
+                          state_dep_vals + self.constant_vals + self.parameter_vals)
+            return l_func(*input_args)
 
         return wrapped_lambda
 
@@ -257,7 +276,7 @@ class D_Dt_Fast_numpy:
     def _calc_intermediate_vals(self, t, state, driving_vals):
         """Calculate all the bits required by the evolution function"""
         intermediate_vals = self.intermediate_calc_F(
-            t, *self.dimAxes, *state, *driving_vals, *self.constant_vals
+            t, *self.dimAxes, *state, *driving_vals, *self.constant_vals, *self.parameter_vals
         )
         return intermediate_vals
 
@@ -284,6 +303,7 @@ class D_Dt_Fast_numpy:
             *driving_vals,
             *state_dep_vals,
             *self.constant_vals,
+            *self.parameter_vals
         )
         for i, val in enumerate(res):
             self.d_dt_current[i] = val
@@ -338,20 +358,22 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
         children = (
             tuple(self.constant_vals),
             tuple(self.dimAxes),
+            tuple(self.parameter_vals),
         )
         # aux_data must be hashable and contain only static information.
         # Functions and symbolic objects should be handled carefully.
         aux_data = {
             't_sym': self.t_sym,
             'state_syms': self.state_syms,
+            'parameter_syms': tuple(self.parameter_syms),
             'd_dtF': self.d_dtF,
-            'd_dtF_grouped': self.d_dtF_grouped,
+            'd_dtF_grouped': getattr(self, 'd_dtF_grouped', None),
             'intermediate_calc_F': self.intermediate_calc_F,
             'state_dep_f': tuple(self.state_dep_f),
             't_dep_f': tuple(self.t_dep_f),
             'dim_shape': self.dim_shape,
             'input_syms': tuple(self.input_syms),
-            'grouped_input_syms': tuple(self.grouped_input_syms),
+            'grouped_input_syms': tuple(getattr(self, 'grouped_input_syms', [])),
             'evoD': self.evoD,
             'state_dep_funcs_D': getattr(self, 'state_dep_funcs_D', {}),
         }
@@ -364,6 +386,7 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
             setattr(obj, k, v)
         obj.constant_vals = list(children[0])
         obj.dimAxes = list(children[1])
+        obj.parameter_vals = list(children[2])
         return obj
 
     def __call__(self, t, state, args=None):
@@ -372,11 +395,12 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
         # These are still Python loops, but they operate on JAX tracers
         driving_vals = [f(t) for f in self.t_dep_f]
 
-        # We use a grouped call to intermediate_calc_F if possible,
+        # We use a grouped call to intermediate_calc_F if possible, 
         # but for now let's just optimize the main d_dtF call
         intermediate_vals = self.intermediate_calc_F(
-            t, *self.dimAxes, *state, *driving_vals, *self.constant_vals
+            t, *self.dimAxes, *state, *driving_vals, *self.constant_vals, *self.parameter_vals
         )
+
         state_dep_vals = [
             f(
                 t,
@@ -390,7 +414,7 @@ class D_Dt_Fast_Diffrax(D_Dt_Fast_numpy):
         ]
 
         # Use the grouped function to avoid tracer unpacking explosion
-        others = tuple(driving_vals) + tuple(state_dep_vals) + tuple(self.constant_vals)
+        others = tuple(driving_vals) + tuple(state_dep_vals) + tuple(self.constant_vals) + tuple(self.parameter_vals)
         res = self.d_dtF_grouped(
             t,
             tuple(self.dimAxes),
@@ -450,11 +474,16 @@ class ModelDiffrax:
         self.kwargs = opts # Remaining opts go to diffeqsolve
 
 
-    def integrate(self, tSteps, initial_state=None):
+    def integrate(self, tSteps, initial_state=None, params={}, **kwargs):
         if initial_state is None:
             initial_state = self.initial_state
         else:
             initial_state = jnp.array(initial_state)
+
+        if params:
+            # For JAX, we need to create a new d_dt_fast with updated parameter_vals
+            # since it's a PyTree.
+            self.d_dt_fast.set_parameters(params)
 
         t0 = tSteps[0]
         t1 = tSteps[-1]
@@ -467,9 +496,9 @@ class ModelDiffrax:
 
         # Use a JITted internal function to speed up repeated calls
         @jax.jit
-        def solve(y0, t0, t1, dt0, tSteps):
+        def solve(y0, t0, t1, dt0, tSteps, d_dt_fast_local):
             sol = diffrax.diffeqsolve(
-                term,
+                diffrax.ODETerm(d_dt_fast_local),
                 self.solver,
                 t0=t0,
                 t1=t1,
@@ -482,7 +511,7 @@ class ModelDiffrax:
             )
             return sol
 
-        sol = solve(initial_state, t0, t1, dt0, tSteps)
+        sol = solve(initial_state, t0, t1, dt0, tSteps, self.d_dt_fast)
 
         # Process outputs efficiently using vmap if possible
         # We need a function that works on JAX tracers
@@ -498,3 +527,97 @@ class ModelDiffrax:
             for i in range(len(tSteps)):
                 outputL.append(self.output_func(tSteps[i], sol.ys[i]))
             return np.array(outputL)
+
+
+class D_Dt_Fast_CyRK(D_Dt_Fast_numpy):
+    """CyRK compatible ODE RHS."""
+    def __init__(self, *args, **kwargs):
+        if CyRK is None:
+            raise ImportError("CyRK not installed.")
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, t, state):
+        # CyRK expects a function of (t, y) where y is 1D
+        # If our state is multi-dimensional, it will be flattened by the model wrapper
+        # but here we need to ensure we return a 1D array if needed.
+        res = super().__call__(t, state)
+        return self.d_dt_current.reshape(-1)
+
+
+class ModelCyRK(Model):
+    def __init__(
+        self,
+        d_dt_fast,
+        initial_state,
+        output_func,
+        solver_opts=None,
+        **kwargs,
+    ):
+        opts = dict(solver_opts) if solver_opts else {}
+        self.d_dt_fast = d_dt_fast
+        
+        self.state_shape = initial_state.shape
+        self.initial_state = initial_state.reshape(-1)
+        self.output_func = output_func
+
+        self.method = opts.pop('method', 'RK45') # CyRK supports RK45, DOP853 etc
+        self.atol = opts.pop('atol', 1e-10)
+        self.rtol = opts.pop('rtol', 1e-8)
+        self.max_step = opts.pop('max_step', np.inf)
+        
+        # CyRK doesn't support max_steps/nsteps
+        opts.pop('max_steps', None)
+        opts.pop('nsteps', None)
+        
+        self.kwargs = opts
+
+    def _unflatten(self, flat_state):
+        return flat_state.reshape(*self.state_shape)
+
+    def integrate(self, tSteps, initial_state=None):
+        if initial_state is None:
+            y_current = self.initial_state
+        else:
+            y_current = initial_state.reshape(-1)
+
+        unflatten = self._unflatten
+        d_dt_fast = self.d_dt_fast
+
+        def rhs_wrapped(t, y_flat):
+            y = unflatten(y_flat)
+            dy = d_dt_fast(t, y)
+            return dy.reshape(-1).astype(np.float64)
+
+        outputL = []
+        # Initial output
+        outputL.append(self.output_func(tSteps[0], unflatten(y_current)))
+
+        # Integrate from step to step
+        for i in range(len(tSteps) - 1):
+            t_start = tSteps[i]
+            t_end = tSteps[i+1]
+            
+            if t_start == t_end:
+                outputL.append(self.output_func(t_end, unflatten(y_current)))
+                continue
+
+            res = CyRK.pysolve_ivp(
+                rhs_wrapped,
+                (t_start, t_end),
+                y_current,
+                t_eval=np.array([t_end]), # Only evaluate at the end point, must be array
+                method=self.method,
+                atol=self.atol,
+                rtol=self.rtol,
+                max_step=self.max_step,
+                **self.kwargs
+            )
+            
+            if not res.success:
+                print(f"CyRK integration failed at t={t_end}: {res.message}")
+                break
+                
+            y_current = res.y[:, -1]
+            outputL.append(self.output_func(t_end, unflatten(y_current)))
+
+        return np.array(outputL)

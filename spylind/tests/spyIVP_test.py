@@ -28,3 +28,33 @@ def test_projectile_motion():
         print(sym_res[name]-sim_res[name])
         assert(np.allclose(sym_res[name], sim_res[name]))
 
+def test_late_binding_parameters():
+    """Test updating tunable parameters without re-compiling."""
+    x, v = sm.symbols("x, v", real=True)
+    k = sm.symbols("k", real=True) # Parameter
+    m = 1.0 # Constant
+    
+    dy_dtD = {x: v, v: -k/m * x}
+    
+    ode_sys = so.ODESys(dy_dtD, parameters=[k])
+    ode_sys.set_initial_state({x: 1.0, v: 0.0})
+    
+    t_steps = np.linspace(0, 5.0, 50)
+    
+    for backend in ['numpy', 'diffrax']:
+        if backend == 'diffrax' and so.ModelDiffrax is None:
+            continue
+            
+        model = ode_sys.setup_model(backend=backend)
+        
+        # Test 1: k = 1.0 -> x(t) = cos(t)
+        res1 = model.integrate(t_steps, params={k: 1.0})
+        expected1 = np.cos(t_steps)
+        assert np.allclose(res1[:, 0], expected1, atol=1e-4)
+        
+        # Test 2: k = 4.0 -> x(t) = cos(2t)
+        # Should be fast as it uses late-binding
+        res2 = model.integrate(t_steps, params={k: 4.0})
+        expected2 = np.cos(2.0 * t_steps)
+        assert np.allclose(res2[:, 0], expected2, atol=1e-4)
+
