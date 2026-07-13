@@ -3,11 +3,11 @@ import numpy as np
 from spylind import spyIVP as so
 import sympy as sm;
 from box import Box
-#import numba
+from jax import numpy as jnp
+
 
 def make_repeating_pulse_func(period,rel_width, pulse_area, offset_frac = 0, scl = 1):
     amp0 = pulse_area/(rel_width*period)*scl
-    #@numba.jit
     def f(t):
         t_ = t/(period) - offset_frac
         T = t_% 1
@@ -16,7 +16,32 @@ def make_repeating_pulse_func(period,rel_width, pulse_area, offset_frac = 0, scl
         return amp
     return f
 
-
+#avoids branching to be Jittable by jax
+def make_repeating_pulse_func_jax(period,rel_width, pulse_area, offset_frac = 0, scl = 1):
+    amp0 = pulse_area/(rel_width*period)*scl
+    def f(t):
+        t_ = t/(period) - offset_frac
+        T = t_% 1
+        #amp = amp0 if T<rel_width else 0
+        amp = jnp.where(T<rel_width, amp0, 0)
+     
+        return amp
+    return f
+    
+#avoids branching to be Jittable by jax
+def make_alternating_pulse_func_jax(period,rel_width, pulse_area, gamma=1, offset_frac = 0 ):
+    amp0 = pulse_area/gamma/(rel_width*period)
+    def f(t):
+        t_ = t/(period) - offset_frac
+        T = t_% 1
+        #amp = amp0 if T<rel_width else 0
+        amp = jnp.where(T<rel_width, amp0, 0)
+        amp *= jnp.where(t_%2<1,1,-1)
+        #if amp:
+        #    pdb.set_trace()
+        #amp *= 1 if t_%2<1 else -1 #alternate sign
+        return amp
+    return f 
 def make_alternating_pulse_func(period,rel_width, pulse_area, gamma=1, offset_frac = 0 ):
     amp0 = pulse_area/gamma/(rel_width*period)
     #@numba.jit
