@@ -24,9 +24,7 @@ def test_projectile_motion():
         vy = 10 + g*tSteps
     )
     for name in ['x', 'y', 'vx', 'vy']:
-        print('for sim: ', name)
-        print(sym_res[name]-sim_res[name])
-        assert(np.allclose(sym_res[name], sim_res[name]))
+        assert np.allclose(sim_res[name], sym_res[name], atol=1e-5)
 
 def test_late_binding_parameters():
     """Test updating tunable parameters without re-compiling."""

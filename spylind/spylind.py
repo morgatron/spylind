@@ -375,28 +375,41 @@ def makeMESymb(H_L, c_opL=[], e_opL=[], rhoS=None, bReturnPrettyEquation=False):
 
 
 #mesolve(H, rho0, tlist, c_ops=None, e_ops=None
-def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coupling_fL={}, 
-            max_step_size=0.1, rtol=1e-6, atol=1e-10, backend='numpy', solver_opts=None):
+def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims={}, t_dep_fL={}, coupling_fL={}, 
+            max_step_size=0.1, rtol=1e-6, atol=1e-10, backend='numpy', bDecompose_to_re_im=False, solver_opts=None):
     """ Mimic the interface of qutip's mesolve
     """
-    evoD, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL = e_ops)
+    if backend == 'cyrk':
+        bDecompose_to_re_im = True
 
-    ode_s = ivp.ODESys(evoD,  trans_dims=dims, driving_syms= list(t_dep_fL.keys()))
+    evoD, e_op_outL = makeMESymb(H, c_opL=c_ops, e_opL=e_ops)
+
+    ode_s = ivp.ODESys(evoD, trans_dims=dims, driving_syms=list(t_dep_fL.keys()),
+                       bDecompose_to_re_im=bDecompose_to_re_im)
     ode_s.set_driving(t_dep_fL)
-    #ode_s.set_state_dep()
 
     # Convert a qobj state input to a density matrix
     if q.isket(rho0):
-        rho0 = rho0*rho0.dag()
+        rho0 = rho0 * rho0.dag()
     if q.isoper(rho0):
-        rho0= toDense(rho0)
+        rho0 = toDense(rho0)
     rho0 = Dia(rho0) + Coh(rho0)
-    ode_s.set_initial_state(rho0 )
-    e_op_f_L = [sm.lambdify(ode_s.symsD['state'],e_op ) for e_op in e_op_outL]
-    def calc_expectation_vals(t, state):
-        return [f(*state) for f in e_op_f_L]
-    ode_s.set_outputs(calc_expectation_vals) 
-    
+    ode_s.set_initial_state(rho0)
+
+    if e_op_outL:
+        if bDecompose_to_re_im:
+            complex_subsD = ode_s.real_imag_conv.complex_subsD
+            e_op_subbed = [e_op.subs(complex_subsD) for e_op in e_op_outL]
+        else:
+            e_op_subbed = e_op_outL
+
+        e_op_f_L = [sm.lambdify(ode_s.symsD['state'], e_op) for e_op in e_op_subbed]
+        def calc_expectation_vals(t, state):
+            return [f(*state) for f in e_op_f_L]
+        ode_s.set_outputs(calc_expectation_vals)
+    else:
+        ode_s.set_outputs()
+
     # Standardize options: merge defaults with user-provided solver_opts
     actual_opts = {'max_step': max_step_size, 'atol': atol, 'rtol': rtol}
     if solver_opts:
@@ -405,12 +418,6 @@ def mesolve(H, rho0, tlist, c_ops=None, e_ops=None, dims = {}, t_dep_fL={}, coup
     model = ode_s.setup_model(solver_opts=actual_opts, backend=backend)
     state_res = model.integrate(tlist)
     return np.array(state_res).squeeze()
-    #state_res = np.array(ode_s.outputL).squeeze()
-    # Should do something about expectation values here. Probably evaluate them
-    #if e_op_outL:
-        #f = sm.lambdify(ode_s.state_syms, e_op_outL)
-        #return f(state_res)
-    return state_res
 
 # Pretty printing of sympy matrices in notebooks
 try:
@@ -464,62 +471,4 @@ try:
 except ModuleNotFoundError:
     print("No pretty printing stuff (probably because no Pandas)")
 
-def calcE_FWonly_SD(state, EinFwNow, lineShape, calc_polF, Ncoh):
-    """Just the simplest case, the moving-frame approx.
-    """
-    coh, diag = ...
-    pol = (calc_polF(*coh) * lineShape).sum(axis=-1)
-    Etot = np.cumsum(pol)  # * excArrs.fwMode.conj())
-    return Etot
 
-if __name__ == "__main__":
-    # Tests
-
-    # sympy_me.py testSpline
-
-    def test_makeMESymb():
-        pass
-
-    def test_constructBlochHamiltonian():
-        pass
-
-    # OLD TESTS
-    def test_makeEvolutionFuncs():
-        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
-        H1 = toDense(q.sigmax())
-        c_opL = [toDense(q.destroy(2))]
-        delt = sm.symbols('Delta', real=True)
-        coefs, diagL, cohL, coh_dtM, diag_dtM, polS = makeEvolutionFuncs(
-            H0, toDense(q.qeye(H0.shape[0])), 1 * [(delt, H1)], c_opL, bSymbOnly=True)
-        return coefs, diagL, cohL, coh_dtM, diag_dtM, polS
-
-    def test_makeEvolutionSymbollic():
-        """Incomplete- test how the symbollic side of things works"""
-        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
-        H1 = toDense(q.sigmax())
-        c_opL = [toDense(q.destroy(2))]
-        delt = sm.symbols('Delta', real=True)
-        Ef = sm.symbols("Ef")
-        # def makeEvolutionFuncsHardWork(H0, H1, HlstM=[], c_opL=[], rhoS=None):
-        out = makeEvolutionSymbs(H0 + delt * H1, c_opL, rhoS=getRhoS(H0.shape[0]))
-        return out
-
-    def test_makeEvolutionFuncs_numerical():
-        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
-        H1 = toDense(q.sigmax())
-        c_opL = [toDense(q.destroy(2))]
-        delt = sm.symbols('Delta', real=True)
-        dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh = makeEvolutionFuncs(
-            H0, toDense(q.sigmax()), 1 * [(delt, H1)], c_opL, bSymbOnly=False)
-        return dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh
-
-    def test_makeBlochEqSyms():
-        H0 = toDense(q.sigmaz() * q.sigmaz().dag())
-        H1 = toDense(q.sigmax())
-        c_opL = [toDense(q.destroy(2))]
-        delt = sm.symbols('Delta', real=True)
-        Ef = sm.symbols("Ef")
-        return makeBlochEqSymbs(H0, Hfield_L=[[Ef, H1]], Hother_L=[], c_opL=[], rhoS=None)
-
-    #coefs, diagL, cohL, coh_dtM, diag_dtM, polS= test_makeEvolutionFuncs()
-    #dcoh_dt, ddia_dt, calc_pol, recons_rho, init_state, Ndiag, Ncoh = test_makeEvolutionFuncs_numerical()

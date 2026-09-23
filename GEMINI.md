@@ -3,7 +3,7 @@
 
 Spylind is nominally a Python library for the simple definition and fast solution of large ensembles of quantum systems, each described by a Lindblad master equation. It is particularly focused on Rare-earth ion ensembles in solids.
 
-The project uses **Sympy** to derive symbolic equations of motion for density matrix elements and provides bridges to numerical solvers using **Scipy** (Numpy backend) or **Tensorflow** for high-performance integration.
+The project uses **Sympy** to derive symbolic equations of motion for density matrix elements and provides bridges to numerical solvers using **Scipy** (Numpy backend), **Diffrax** (JAX), or **CyRK** for high-performance integration.
 
 The project also includes spyIVP which is a way to quickly solve initial value problems defined by multi-dimensional sympy expressions. This part has turned out to be useful on it's own. It is designed to be used in interactive simulation scripts or notebooks, and includes some diagnostic tools.
 
@@ -18,7 +18,6 @@ The project also includes spyIVP which is a way to quickly solve initial value p
     - `ModelNumpy`: Uses `scipy.integrate.ode`.
     - `ModelDiffrax`: Uses `diffrax` (JAX) for high-performance, XLA-accelerated solving.
     - `ModelCyRK`: Uses `CyRK` for fast, Cython-based integration.
-- **`spylind.MBE`**: Maxwell-Bloch Equations implementation.
 
 ## Key Technologies
 
@@ -26,7 +25,8 @@ The project also includes spyIVP which is a way to quickly solve initial value p
 - **Sympy**: Symbolic mathematics.
 - **Numpy / Scipy**: Numerical integration and array operations.
 - **QuTiP**: Quantum Toolbox in Python (supported for operator definitions).
-- **Tensorflow**: (Optional) Backend for accelerated solving.
+- **Diffrax / JAX**: Accelerated ODE integration on CPU/GPU.
+- **CyRK**: Fast Cython-based Runge-Kutta ODE solving.
 
 ## Development Workflow
 

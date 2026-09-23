@@ -5,14 +5,17 @@ def list_diff(first, second):
     second = set(second)
     return [item for item in first if item not in second]
 def expand_list_to_re_im(sym_list):
+    """Expand a list of symbols into real and imaginary parts for non-real symbols."""
     re_im_out_L = []
     for sym in sym_list:
-        if sym.is_real:
+        if getattr(sym, 'is_real', False):
             re_im_out_L.append(sym)
         else:
-            re_im_out_L.append()
-    # all complex symbols
-    complex_syms = [sym for sym in sym_list if not sym.is_real]
+            re_im_out_L.extend([
+                sm.symbols(str(sym) + '_re', real=True),
+                sm.symbols(str(sym) + '_im', real=True)
+            ])
+    return re_im_out_L
 
 def expand_to_re_im(eqD, bNumericalRHS=False):  # , indep_syms):
     """ Take a system of potentially complex symbol:expression pairs and return
@@ -51,7 +54,7 @@ def expand_to_re_im(eqD, bNumericalRHS=False):  # , indep_syms):
         if sym.is_real:
             return sym
         else:
-            return (sm.symbols(str(sym) + '^r', real=True), sm.symbols(str(sym) + '^i', real=True))
+            return (sm.symbols(str(sym) + '_re', real=True), sm.symbols(str(sym) + '_im', real=True))
     symbol_mapD = {sym: expand_sym(sym) for sym in lhsL + indep_syms}
     complex_subsD = {sym: val[0] + sm.I * val[1]
                      for sym, val in symbol_mapD.items() if not sym.is_real}

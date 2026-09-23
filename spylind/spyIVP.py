@@ -113,6 +113,28 @@ class ODESys:
 
         propagated_state_syms, stationary_state_syms, free_syms = self.sort_symbols(
             dy_dtD)
+
+        def to_symbols(sym_list):
+            out = []
+            for s in sym_list:
+                if isinstance(s, str):
+                    matched = None
+                    for fs in set(free_syms) | set(dy_dtD.keys()):
+                        if str(fs) == s:
+                            matched = fs
+                            break
+                    if matched is None:
+                        matched = sm.symbols(s)
+                    out.append(matched)
+                else:
+                    out.append(s)
+            return out
+
+        driving_syms = to_symbols(driving_syms)
+        state_dep_syms = to_symbols(state_dep_syms)
+        constant_syms = to_symbols(constant_syms)
+        parameters = to_symbols(parameters)
+
         symsD = Box({'t': tSym,
                                'dimensions': dims.symbols,
                                'state': propagated_state_syms + stationary_state_syms,
@@ -143,13 +165,13 @@ class ODESys:
         self.parametersD = {sym: 0.0 for sym in parameters} # Default parameter values
         self.output_exprD = output_exprD
 
-        if bDecompose_to_re_im:
-            self._decompose_to_re_im(bTryToSimplify)
-        
         self.bDecompose_to_re_im = bDecompose_to_re_im
         self.state_dep_subs_D = {}
         self.state_dep_funcs_D = {}
         self.driving_funcs_D = {}
+
+        if bDecompose_to_re_im:
+            self._decompose_to_re_im(bTryToSimplify)
 
     def set_parameters(self, paramsD):
         """Set default values for tunable parameters."""
@@ -181,6 +203,40 @@ class ODESys:
             dy_dtD_new
         )
         
+        # Expand driving syms
+        new_driving = []
+        for sym in self.symsD.driving:
+            if sym in symbol_mapD:
+                mapped = symbol_mapD[sym]
+                if isinstance(mapped, tuple):
+                    new_driving.extend(mapped)
+                else:
+                    new_driving.append(mapped)
+            elif not getattr(sym, 'is_real', False):
+                new_driving.extend([
+                    sm.symbols(f"{sym}_re", real=True),
+                    sm.symbols(f"{sym}_im", real=True)
+                ])
+            else:
+                new_driving.append(sym)
+
+        # Expand state_dep syms
+        new_state_dep = []
+        for sym in self.symsD.state_dep:
+            if sym in symbol_mapD:
+                mapped = symbol_mapD[sym]
+                if isinstance(mapped, tuple):
+                    new_state_dep.extend(mapped)
+                else:
+                    new_state_dep.append(mapped)
+            elif not getattr(sym, 'is_real', False):
+                new_state_dep.extend([
+                    sm.symbols(f"{sym}_re", real=True),
+                    sm.symbols(f"{sym}_im", real=True)
+                ])
+            else:
+                new_state_dep.append(sym)
+
         # Create new symsD for the real-only system
         new_symsD = Box({
             't': self.symsD.t,
@@ -188,19 +244,29 @@ class ODESys:
             'state': propagated_state_syms + stationary_state_syms,
             'stationary_state': [],
             'intermediate': self.symsD.intermediate,
-            'driving': self.symsD.driving,
-            'state_dep': self.symsD.state_dep,
+            'driving': new_driving,
+            'state_dep': new_state_dep,
             'constants': self.symsD.constants,
             'parameters': self.symsD.parameters,
-            'unspecified': ut.list_diff(free_syms, self.symsD.driving),
+            'unspecified': ut.list_diff(free_syms, new_driving),
         })
 
         self.symsD = new_symsD
-        self.state_func_signature = chain(*real_imag_conv.state_func_signature_orig)
+        self.state_func_signature = (new_symsD.t, new_symsD.dimensions, new_symsD.state, new_symsD.stationary_state, new_symsD.driving)
         self.dy_dtD = dy_dtD_new
         self.real_imag_conv = real_imag_conv
-        print("realified state dependent functions signature: {}".format(
-            real_imag_conv.state_func_signature_orig))
+
+        if self.output_exprD is not None:
+            self.output_exprD = {sym: ex.subs(complex_subsD) for sym, ex in self.output_exprD.items()}
+
+        if self.intermediate_calcs:
+            self.intermediate_calcs = [ex.subs(complex_subsD) for ex in self.intermediate_calcs]
+
+        if self.driving_funcs_D:
+            self.set_driving(self.driving_funcs_D)
+
+        if self.state_dep_funcs_D:
+            self.set_state_dependence(self.state_dep_funcs_D)
 
     def summary(self):
         from IPython.display import display, Latex, Markdown
@@ -314,6 +380,34 @@ class ODESys:
 
         If they're not callables assume they can be substituted in and sorted out by sympy.
         """
+        if isinstance(driving_funcs_D, (list, tuple)):
+            if self.bDecompose_to_re_im and hasattr(self, 'real_imag_conv') and len(driving_funcs_D) == len(self.real_imag_conv.symsD_orig.driving):
+                driving_funcs_D = dict(zip(self.real_imag_conv.symsD_orig.driving, driving_funcs_D))
+            else:
+                driving_funcs_D = dict(zip(self.symsD.driving, driving_funcs_D))
+
+        # Normalize keys so string keys match sympy symbols
+        normalized_driving = {}
+        for sym, val in driving_funcs_D.items():
+            if isinstance(sym, str):
+                match = None
+                orig_driving = getattr(self.real_imag_conv.symsD_orig, 'driving', []) if hasattr(self, 'real_imag_conv') else []
+                for dsym in list(self.symsD.driving) + list(orig_driving):
+                    if str(dsym) == sym:
+                        match = dsym
+                        break
+                if match is None and hasattr(self, 'real_imag_conv'):
+                    for csym in self.real_imag_conv.complex_subsD:
+                        if str(csym) == sym:
+                            match = csym
+                            break
+                if match is None:
+                    match = sm.symbols(sym)
+                normalized_driving[match] = val
+            else:
+                normalized_driving[sym] = val
+        driving_funcs_D = normalized_driving
+
         for sym in list(driving_funcs_D.keys()):
             val = driving_funcs_D[sym]
 
@@ -328,18 +422,28 @@ class ODESys:
 
         if self.bDecompose_to_re_im and not bAlreadyRealified:  # Split each F into real and imaginary outputs
             driving_funcs_D_ri = {} # This'll be the new driving_funcs_D
-            for sym in driving_funcs_D:
-                if sym.is_real:
-                    driving_funcs_D_ri[sym] = driving_funcs_D[sym]
-                else: #Ugh, this is pretty inefficient, at least for numpy
-                    sym_r, sym_i = self.real_imag_conv.complex_subsD[sym].as_real_imag()
-                    f = driving_funcs_D[sym]
-                    driving_funcs_D_ri[sym_r] = lambda t: f(t).real
-                    driving_funcs_D_ri[sym_i] = lambda t: f(t).imag
+            for sym, f in driving_funcs_D.items():
+                if getattr(sym, 'is_real', False):
+                    driving_funcs_D_ri[sym] = f
+                else:
+                    sym_r = None
+                    sym_i = None
+                    if hasattr(self, 'real_imag_conv'):
+                        if sym in self.real_imag_conv.symbol_mapD:
+                            mapped = self.real_imag_conv.symbol_mapD[sym]
+                            if isinstance(mapped, tuple):
+                                sym_r, sym_i = mapped
+                        elif sym in self.real_imag_conv.complex_subsD:
+                            sym_r, sym_i = self.real_imag_conv.complex_subsD[sym].as_real_imag()
+                    if sym_r is None:
+                        sym_r = sm.symbols(f"{sym}_re", real=True)
+                        sym_i = sm.symbols(f"{sym}_im", real=True)
+                    driving_funcs_D_ri[sym_r] = lambda t, f=f: np.real(f(t))
+                    driving_funcs_D_ri[sym_i] = lambda t, f=f: np.imag(f(t))
             driving_funcs_D = driving_funcs_D_ri
+            self.symsD.driving = list(driving_funcs_D.keys())
 
         self.driving_funcs_D = driving_funcs_D
-        #print(driving_funcs_D)
 
     def set_constants(self, constantsD):
         """Set multi-dimensional values that won't change during the simulation.
@@ -379,14 +483,12 @@ class ODESys:
                 state_dep_funcs_D.pop(sym)
 
         # DECOMPOSE TO REAL/IMAGINARY PARTS-----------------------------------
-        if self.bDecompose_to_re_im and not bAlreadyRealified:  # This is ugly, and ends up calling the function twice if it represents a complex value. Tensorflow (which is mainly why this exists) may sort it out on the compilation stage though.
-            # To fix for numpy,  we'd need to allow a single function to return the value for two symbols.
+        if self.bDecompose_to_re_im and not bAlreadyRealified:
             nDims = len(self.state_shape) - 1
-            nStates = len(self.symsD_orig.prop_state_syms)
-            nDriving = len(self.symsD_orig.driving_syms)
-
             symsD_orig = self.real_imag_conv.symsD_orig
             complex_subsD = self.real_imag_conv.complex_subsD
+            nStates = len(symsD_orig.state)
+            nDriving = len(symsD_orig.driving)
 
             which_complex_in = [0] + nDims*[0] + \
                 [0 if sym.is_real else 1 for sym in symsD_orig['state']] + \
@@ -400,17 +502,18 @@ class ODESys:
                 F_ri_flat = ut.realify_np(
                     F_flat, which_complex_in, which_complex_out)
 
-                def F_ri(t, dimAxes, states, driving): return F_ri_flat(
-                    t, *dimAxes, *states, *driving)
+                def F_ri(t, dimAxes, states, driving, *args, f_ri_flat=F_ri_flat):
+                    return f_ri_flat(t, *dimAxes, *states, *driving)
 
                 if sym.is_real:
-                    state_dep_funcs_D_ri[sym] = lambda *args: F_ri(*args)[0]
+                    state_dep_funcs_D_ri[sym] = lambda *args, f_ri=F_ri: f_ri(*args)[0]
                 else:
                     sym_r, sym_i = complex_subsD[sym].as_real_imag()
-                    state_dep_funcs_D_ri[sym_r] = lambda *args: F_ri(*args)[0]
-                    state_dep_funcs_D_ri[sym_i] = lambda *args: F_ri(*args)[1]
+                    state_dep_funcs_D_ri[sym_r] = lambda *args, f_ri=F_ri: f_ri(*args)[0]
+                    state_dep_funcs_D_ri[sym_i] = lambda *args, f_ri=F_ri: f_ri(*args)[1]
 
             state_dep_funcs_D = state_dep_funcs_D_ri
+            self.symsD.state_dep = list(state_dep_funcs_D.keys())
         #FINISHED DECOMPOSITION=============================================
 
         self.state_dep_subs_D = subsD

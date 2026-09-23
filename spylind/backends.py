@@ -45,10 +45,15 @@ class Model(ABC):
         self.outputL = []
 
     def continue_to(self, tEnd, dt):
-        tCur = self.scipy_integrator.t
+        if hasattr(self, 'scipy_integrator'):
+            tCur = self.scipy_integrator.t
+        elif self.tSteps_last_run is not None:
+            tCur = self.tSteps_last_run[-1]
+        else:
+            raise ValueError("Model has not been integrated yet; cannot continue.")
         if tEnd <= tCur:
-            raise ValueError(f"Already integrated past {tEnd} (tCur is {tCur}")
-        tSteps = np.arange(tCur + dt, tEnd, dt)  # tSteps_last_run[-1]
+            raise ValueError(f"Already integrated past {tEnd} (tCur is {tCur})")
+        tSteps = np.arange(tCur + dt, tEnd, dt)
         return self.integrate(tSteps)
 
     def integrate_to(self, tEnd, dt):
@@ -57,7 +62,6 @@ class Model(ABC):
 
 
 class ModelNumpy(Model):  # Should really be called ModelScipy
-    outputL = []
 
     def __init__(
         self,
@@ -143,6 +147,7 @@ class ModelNumpy(Model):  # Should really be called ModelScipy
             # probably reshaping, calculating fields etc
 
             outputL.append(self.calc_output(tNext, cur_state))
+        self.tSteps_last_run = tSteps
         return np.array(outputL)
 
 
@@ -433,7 +438,7 @@ if jax is not None:
     )
 
 
-class ModelDiffrax:
+class ModelDiffrax(Model):
     def __init__(
         self,
         d_dt_fast,
@@ -451,7 +456,6 @@ class ModelDiffrax:
 
         # Support both max_steps (diffrax) and nsteps (scipy) as aliases
         self.max_steps = opts.pop('max_steps', opts.pop('nsteps', 100000000))
-        # print(f"Max_steps is {self.max_steps}")
 
         # Check current JAX precision to set sane default tolerances
         is_x64 = jax.config.read("jax_enable_x64")
@@ -473,6 +477,29 @@ class ModelDiffrax:
             )
         self.kwargs = opts # Remaining opts go to diffeqsolve
 
+        # Create JIT-compiled solve function once
+        solver = self.solver
+        stepsize_controller = self.stepsize_controller
+        max_steps = self.max_steps
+        kwargs_solve = self.kwargs
+
+        @jax.jit
+        def _solve(y0, t0, t1, dt0, tSteps, d_dt_fast_local):
+            sol = diffrax.diffeqsolve(
+                diffrax.ODETerm(d_dt_fast_local),
+                solver,
+                t0=t0,
+                t1=t1,
+                dt0=dt0,
+                y0=y0,
+                stepsize_controller=stepsize_controller,
+                saveat=diffrax.SaveAt(ts=tSteps),
+                max_steps=max_steps,
+                **kwargs_solve,
+            )
+            return sol
+
+        self._solve_jit = _solve
 
     def integrate(self, tSteps, initial_state=None, params={}, **kwargs):
         if initial_state is None:
@@ -481,43 +508,17 @@ class ModelDiffrax:
             initial_state = jnp.array(initial_state)
 
         if params:
-            # For JAX, we need to create a new d_dt_fast with updated parameter_vals
-            # since it's a PyTree.
             self.d_dt_fast.set_parameters(params)
 
         t0 = tSteps[0]
         t1 = tSteps[-1]
         dt0 = (tSteps[1] - tSteps[0]) if len(tSteps) > 1 else 0.1
 
-        saveat = diffrax.SaveAt(ts=tSteps)
-
-        # Diffrax expects a function (t, y, args)
-        term = diffrax.ODETerm(self.d_dt_fast)
-
-        # Use a JITted internal function to speed up repeated calls
-        @jax.jit
-        def solve(y0, t0, t1, dt0, tSteps, d_dt_fast_local):
-            sol = diffrax.diffeqsolve(
-                diffrax.ODETerm(d_dt_fast_local),
-                self.solver,
-                t0=t0,
-                t1=t1,
-                dt0=dt0,
-                y0=y0,
-                stepsize_controller=self.stepsize_controller,
-                saveat=diffrax.SaveAt(ts=tSteps),
-                max_steps=self.max_steps,
-                **self.kwargs,
-            )
-            return sol
-
-        sol = solve(initial_state, t0, t1, dt0, tSteps, self.d_dt_fast)
+        sol = self._solve_jit(initial_state, t0, t1, dt0, tSteps, self.d_dt_fast)
+        self.tSteps_last_run = tSteps
 
         # Process outputs efficiently using vmap if possible
-        # We need a function that works on JAX tracers
         try:
-            # Try vectorizing the output function
-            # self.output_func(t, y)
             output_vmap = jax.vmap(self.output_func)
             res = output_vmap(tSteps, sol.ys)
             return np.array(res)
@@ -537,9 +538,6 @@ class D_Dt_Fast_CyRK(D_Dt_Fast_numpy):
         super().__init__(*args, **kwargs)
 
     def __call__(self, t, state):
-        # CyRK expects a function of (t, y) where y is 1D
-        # If our state is multi-dimensional, it will be flattened by the model wrapper
-        # but here we need to ensure we return a 1D array if needed.
         res = super().__call__(t, state)
         return self.d_dt_current.reshape(-1)
 
@@ -574,11 +572,14 @@ class ModelCyRK(Model):
     def _unflatten(self, flat_state):
         return flat_state.reshape(*self.state_shape)
 
-    def integrate(self, tSteps, initial_state=None):
+    def integrate(self, tSteps, initial_state=None, params={}, **kwargs):
         if initial_state is None:
             y_current = self.initial_state
         else:
             y_current = initial_state.reshape(-1)
+
+        if params:
+            self.d_dt_fast.set_parameters(params)
 
         unflatten = self._unflatten
         d_dt_fast = self.d_dt_fast
@@ -588,36 +589,25 @@ class ModelCyRK(Model):
             dy = d_dt_fast(t, y)
             return dy.reshape(-1).astype(np.float64)
 
-        outputL = []
-        # Initial output
-        outputL.append(self.output_func(tSteps[0], unflatten(y_current)))
+        if len(tSteps) <= 1:
+            self.tSteps_last_run = tSteps
+            return np.array([self.output_func(tSteps[0], unflatten(y_current))])
 
-        # Integrate from step to step
-        for i in range(len(tSteps) - 1):
-            t_start = tSteps[i]
-            t_end = tSteps[i+1]
-            
-            if t_start == t_end:
-                outputL.append(self.output_func(t_end, unflatten(y_current)))
-                continue
+        res = CyRK.pysolve_ivp(
+            rhs_wrapped,
+            (tSteps[0], tSteps[-1]),
+            y_current,
+            t_eval=tSteps,
+            method=self.method,
+            atol=self.atol,
+            rtol=self.rtol,
+            max_step=self.max_step,
+            **self.kwargs
+        )
 
-            res = CyRK.pysolve_ivp(
-                rhs_wrapped,
-                (t_start, t_end),
-                y_current,
-                t_eval=np.array([t_end]), # Only evaluate at the end point, must be array
-                method=self.method,
-                atol=self.atol,
-                rtol=self.rtol,
-                max_step=self.max_step,
-                **self.kwargs
-            )
-            
-            if not res.success:
-                print(f"CyRK integration failed at t={t_end}: {res.message}")
-                break
-                
-            y_current = res.y[:, -1]
-            outputL.append(self.output_func(t_end, unflatten(y_current)))
+        if not res.success:
+            print(f"CyRK integration failed: {res.message}")
 
+        self.tSteps_last_run = tSteps
+        outputL = [self.output_func(tSteps[i], unflatten(res.y[:, i])) for i in range(len(tSteps))]
         return np.array(outputL)
