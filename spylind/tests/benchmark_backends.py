@@ -64,7 +64,7 @@ def benchmark_suite(n_systems_list=[1000, 5000, 10000], n_steps=100):
         r00: gammaS * r11 + omegaS * r01i,
         r11: -gammaS * r11 - omegaS * r01i,
         r01r: -deltaS * r01i - 0.5 * gammaS * r01r,
-        r01i: deltaS * r01r - 0.5 * gammaS * r01i + 0.5 * omegaS * (r00 - r11)
+        r01i: deltaS * r01r - 0.5 * gammaS * r01i - 0.5 * omegaS * (r00 - r11)
     }
     
     t_steps = np.linspace(0, 50, n_steps)
