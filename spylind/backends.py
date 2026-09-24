@@ -228,9 +228,18 @@ class D_Dt_Fast_numpy:
         self.t_sym = t_sym
         self.state_syms = state_syms
         self.input_syms = input_syms
-        self.intermediate_syms = intermediate_syms
         # For later inspection
         self.evoD = evoD
+        self.dim_syms = dim_syms
+        self.dim_shape = dim_shape
+        self.state_shape = state_shape
+        self.constantsD = constantsD
+        self.constant_syms = constant_syms
+        self.t_dep_FD = t_dep_FD
+        self.t_dep_syms = t_dep_syms
+        self.state_dep_FD = state_dep_FD
+        self.state_dep_syms = state_dep_syms
+        self.intermediate_exprs = intermediate_exprs
 
     def set_parameters(self, paramsD):
         """Update runtime parameter values."""
@@ -562,15 +571,182 @@ class ModelCyRK(Model):
         self.atol = opts.pop('atol', 1e-10)
         self.rtol = opts.pop('rtol', 1e-8)
         self.max_step = opts.pop('max_step', np.inf)
+        self.max_ram_MB = opts.pop('max_ram_MB', 2048)
+        self.bUseFastPath = opts.pop('fast_path', True)
         
         # CyRK doesn't support max_steps/nsteps
         opts.pop('max_steps', None)
         opts.pop('nsteps', None)
         
         self.kwargs = opts
+        self.fast_callback_info = None
+
+        if self.bUseFastPath:
+            self._try_compile_fast_callback()
 
     def _unflatten(self, flat_state):
         return flat_state.reshape(*self.state_shape)
+
+    def _try_compile_fast_callback(self):
+        """Attempt to compile a pure C-callback via Numba / CyRK cyjit for maximum speed.
+        If any aspect of the ODE system is not Numba-compatible (e.g. unjittable custom callables),
+        this will cleanly catch the exception and keep self.fast_callback_info = None,
+        automatically falling back to pysolve_ivp with zero user friction.
+        """
+        try:
+            import math
+            import numba as nb
+            from CyRK import cyjit
+            from sympy.printing.numpy import NumPyPrinter
+
+            # If state-dependent functions exist, fall back to pysolve_ivp
+            if getattr(self.d_dt_fast, 'state_dep_FD', None):
+                return
+
+            t_dep_FD = getattr(self.d_dt_fast, 't_dep_FD', {})
+            jitted_driving = {}
+            for sym, fn in t_dep_FD.items():
+                if callable(fn):
+                    try:
+                        jfn = nb.njit(fn)
+                        # Warmup test call with scalar float
+                        _ = jfn(0.0)
+                        jitted_driving[sym] = jfn
+                    except Exception:
+                        # Cannot JIT user's driving callable -> fallback
+                        return
+
+            state_syms = self.d_dt_fast.state_syms
+            dim_syms = getattr(self.d_dt_fast, 'dim_syms', [])
+            constant_syms = getattr(self.d_dt_fast, 'constant_syms', [])
+            parameter_syms = getattr(self.d_dt_fast, 'parameter_syms', [])
+            dim_axes = getattr(self.d_dt_fast, 'dimAxes', [])
+            constant_vals = getattr(self.d_dt_fast, 'constant_vals', [])
+            parameter_vals = getattr(self.d_dt_fast, 'parameter_vals', [])
+            intermediate_exprs = getattr(self.d_dt_fast, 'intermediate_exprs', [])
+
+            state_shape = self.state_shape
+            n_states = len(state_syms)
+
+            # Build args buffer layout
+            args_layout = []
+            curr_offset = 0
+
+            for d_sym, d_arr in zip(dim_syms, dim_axes):
+                arr = np.asarray(d_arr, dtype=np.float64)
+                args_layout.append(('dim', d_sym, curr_offset, arr.size, arr.shape, arr))
+                curr_offset += arr.size
+
+            for c_sym, c_val in zip(constant_syms, constant_vals):
+                if c_val is not None:
+                    arr = np.asarray(c_val, dtype=np.float64)
+                    args_layout.append(('const', c_sym, curr_offset, arr.size, arr.shape, arr))
+                    curr_offset += arr.size
+
+            for p_sym, p_val in zip(parameter_syms, parameter_vals):
+                args_layout.append(('param', p_sym, curr_offset, 1, (), float(p_val)))
+                curr_offset += 1
+
+            total_args_size = max(curr_offset, 1)
+            base_args_buf = np.zeros(total_args_size, dtype=np.float64)
+            for kind, sym, offset, size, shape, val in args_layout:
+                if kind in ('dim', 'const'):
+                    base_args_buf[offset:offset+size] = np.ravel(val)
+                elif kind == 'param':
+                    base_args_buf[offset] = float(val)
+
+            # Build substitution map to safe python identifier names
+            sub_map = {}
+            for i, s in enumerate(state_syms):
+                sub_map[s] = sm.Symbol(f'_s_{i}')
+            for i, d in enumerate(dim_syms):
+                sub_map[d] = sm.Symbol(f'_d_{i}')
+            for i, c in enumerate(constant_syms):
+                sub_map[c] = sm.Symbol(f'_c_{i}')
+            for i, p in enumerate(parameter_syms):
+                sub_map[p] = sm.Symbol(f'_p_{i}')
+            for i, drv in enumerate(t_dep_FD.keys()):
+                sub_map[drv] = sm.Symbol(f'_drv_{i}')
+            if getattr(self.d_dt_fast, 't_sym', None):
+                sub_map[self.d_dt_fast.t_sym] = sm.Symbol('t')
+
+            printer = NumPyPrinter()
+            lines = [
+                'def _fast_cyrk_diffeq(dy_ptr, t, y_ptr, args_ptr):',
+                f'    y = nb.carray(y_ptr, {state_shape})',
+                f'    dy = nb.carray(dy_ptr, {state_shape})',
+                f'    args = nb.carray(args_ptr, ({total_args_size},))',
+            ]
+
+            # Unpack state
+            for i in range(n_states):
+                lines.append(f'    _s_{i} = y[{i}]')
+
+            # Unpack args
+            d_idx = 0
+            c_idx = 0
+            p_idx = 0
+            for kind, sym, offset, size, shape, _ in args_layout:
+                if kind == 'dim':
+                    if shape == ():
+                        lines.append(f'    _d_{d_idx} = args[{offset}]')
+                    else:
+                        lines.append(f'    _d_{d_idx} = args[{offset}:{offset+size}].reshape({shape})')
+                    d_idx += 1
+                elif kind == 'const':
+                    if shape == () or size == 1:
+                        lines.append(f'    _c_{c_idx} = args[{offset}]')
+                    else:
+                        lines.append(f'    _c_{c_idx} = args[{offset}:{offset+size}].reshape({shape})')
+                    c_idx += 1
+                elif kind == 'param':
+                    lines.append(f'    _p_{p_idx} = args[{offset}]')
+                    p_idx += 1
+
+            # Driving
+            for i, drv in enumerate(t_dep_FD.keys()):
+                lines.append(f'    _drv_{i} = _jitted_drv_{i}(t)')
+
+            # Intermediate expressions
+            for i, expr in enumerate(intermediate_exprs):
+                sub_expr = expr.subs(sub_map)
+                lines.append(f'    _inter_{i} = {printer.doprint(sub_expr)}')
+
+            # Derivatives
+            for i, s in enumerate(state_syms):
+                subbed_rhs = self.d_dt_fast.evoD[s].subs(sub_map)
+                rhs_code = printer.doprint(subbed_rhs)
+                lines.append(f'    dy[{i}] = {rhs_code}')
+
+            fn_code = '\n'.join(lines)
+            local_ns = {'nb': nb, 'numpy': np, 'math': math}
+            for i, drv in enumerate(t_dep_FD.keys()):
+                local_ns[f'_jitted_drv_{i}'] = jitted_driving[drv]
+
+            exec(fn_code, local_ns)
+            compiled_cfunc = cyjit(local_ns['_fast_cyrk_diffeq'])
+
+            self.fast_callback_info = {
+                'address': compiled_cfunc.address,
+                'args_buf': base_args_buf,
+                'args_layout': args_layout,
+                'compiled_fn': compiled_cfunc,
+            }
+        except Exception as e:
+            # Fall back to pysolve_ivp
+            self.fast_callback_info = None
+
+    def set_parameters(self, paramsD):
+        """Update runtime parameter values in both d_dt_fast and the fast args buffer."""
+        self.d_dt_fast.set_parameters(paramsD)
+        if self.fast_callback_info:
+            args_buf = self.fast_callback_info['args_buf']
+            for kind, sym, offset, size, shape, _ in self.fast_callback_info['args_layout']:
+                if kind == 'param':
+                    for psym, val in paramsD.items():
+                        if psym == sym or str(psym) == str(sym):
+                            args_buf[offset] = float(val)
+                            break
 
     def integrate(self, tSteps, initial_state=None, params={}, **kwargs):
         if initial_state is None:
@@ -579,19 +755,51 @@ class ModelCyRK(Model):
             y_current = initial_state.reshape(-1)
 
         if params:
-            self.d_dt_fast.set_parameters(params)
+            self.set_parameters(params)
 
         unflatten = self._unflatten
         d_dt_fast = self.d_dt_fast
 
+        if len(tSteps) <= 1:
+            self.tSteps_last_run = tSteps
+            return np.array([self.output_func(tSteps[0], unflatten(y_current))])
+
+        # 1. Fast Path via nbsolve2_ivp C-callback if available
+        if self.fast_callback_info is not None:
+            try:
+                from CyRK import nbsolve2_ivp
+                addr = self.fast_callback_info['address']
+                args_buf = self.fast_callback_info['args_buf']
+
+                res = nbsolve2_ivp(
+                    addr,
+                    (tSteps[0], tSteps[-1]),
+                    y_current,
+                    t_eval=tSteps,
+                    args=args_buf,
+                    method=self.method,
+                    atol=self.atol,
+                    rtol=self.rtol,
+                    max_step=self.max_step,
+                    dense_output=False,
+                    max_ram_MB=self.max_ram_MB,
+                    **self.kwargs
+                )
+                if not res.success:
+                    print(f"CyRK fast-path integration failed: {res.message}")
+
+                self.tSteps_last_run = tSteps
+                outputL = [self.output_func(tSteps[i], unflatten(res.y[:, i])) for i in range(len(tSteps))]
+                return np.array(outputL)
+            except Exception as e:
+                # If nbsolve2_ivp fails for any reason, fall back to pysolve_ivp below
+                pass
+
+        # 2. Robust Fallback via pysolve_ivp Python bridge
         def rhs_wrapped(t, y_flat):
             y = unflatten(y_flat)
             dy = d_dt_fast(t, y)
             return dy.reshape(-1).astype(np.float64)
-
-        if len(tSteps) <= 1:
-            self.tSteps_last_run = tSteps
-            return np.array([self.output_func(tSteps[0], unflatten(y_current))])
 
         res = CyRK.pysolve_ivp(
             rhs_wrapped,

@@ -656,6 +656,8 @@ class ODESys:
             intermediate_calcs_subbed, 
             self.state_dep_funcs_D, 
             constantsD=self.constantsD, 
+            parameter_syms=self.symsD.parameters,
+            parameter_vals=list(self.parametersD.values()),
             bForceStateDimensions=bForceStateDimensions, 
             dtype=self.sim_dtype
         )
