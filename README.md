@@ -36,7 +36,9 @@ pip install -e .[jax]
 pip install -e ".[cyrk,jax]"
 ```
 
-## Quick Example
+## Quick Examples
+
+### 1. Quantum Master Equation (`spylind.spylind`)
 
 ```python
 from spylind import spylind as spl
@@ -57,6 +59,41 @@ res = spl.mesolve(
     e_ops=[q.sigmaz()],
     backend='cyrk'  # or 'diffrax', 'numpy'
 )
+```
+
+### 2. General ODE Systems & Ensembles (`spylind.spyIVP`)
+
+```python
+import numpy as np
+import sympy as sm
+from spylind import spyIVP as so
+
+# Define symbolic variables
+x, v = sm.symbols("x, v", real=True)
+omega = sm.symbols("omega", real=True)      # Ensemble parameter (e.g. distributed frequencies)
+gamma = sm.symbols("gamma", real=True)      # Damping parameter
+
+# Symbolic equations of motion
+eqs = {
+    x: v,
+    v: -(omega**2) * x - gamma * v
+}
+
+# Define an ensemble over a parameter distribution
+omega_vals = np.linspace(0.8, 1.2, 50)
+ode_sys = so.ODESys(
+    eqs,
+    trans_dims={omega: omega_vals},
+    parameters={gamma: 0.1}
+)
+ode_sys.set_initial_state({x: 1.0, v: 0.0})
+
+# Setup solver model ('cyrk', 'diffrax', or 'numpy')
+model = ode_sys.setup_model(backend='cyrk')
+
+# Integrate: returns array of shape (n_times, n_variables, n_ensemble)
+t_steps = np.linspace(0, 20.0, 200)
+res = model.integrate(t_steps)
 ```
 
 ## License
